@@ -1,0 +1,25 @@
+# Build output
+dist/
+.build_tmp/
+
+# Local-only directories (personal/ is a private nested repo)
+personal/
+sandbox/
+
+# Runtime files generated when scripts run from dev symlinks
+src/scripts/.bin/
+src/scripts/.data/
+personal/.bin/
+personal/.data/
+
+# Tooling / editor
+.claude/
+.claude-docs/
+.vscode/
+*.code-workspace
+CLAUDE.local.md
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
