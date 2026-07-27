@@ -649,6 +649,10 @@ end
 -- (mirrors the fallbacks in src/installer/installer_template.lua)
 local INSTALLED_SCRIPTS_DIRS = {
     "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility/EditorScripts",
+    -- macOS: Resolve maps Scripts:/ to the per-user Library folder, so the
+    -- installer writes there (verified via MapPath on macOS); the system
+    -- /Library path above is kept for hand-installed copies.
+    (os.getenv("HOME") or "") .. "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility/EditorScripts",
     -- Windows: the Support\Fusion path is where Resolve actually installs user
     -- scripts (verified on Windows via MapPath); the remaining entries are
     -- retained as fallbacks for older install layouts.

@@ -1,6 +1,6 @@
 local SCRIPT_INFO = {
     NAME = "Markers to Stills",
-    VERSION = "1.0.0",
+    VERSION = "1.0.1",
     MIN_RESOLVE = "20.0",
 }
 

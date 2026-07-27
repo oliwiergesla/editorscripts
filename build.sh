@@ -50,7 +50,7 @@ REPO_URL="https://github.com/oliwiergesla/editorscripts"
 # Suite installer: one installer bundling every production script from
 # src/scripts/. Bump SUITE_VERSION manually when publishing (repo convention).
 SUITE_NAME="EditorScripts"
-SUITE_VERSION="1.0.0"
+SUITE_VERSION="1.0.1"
 
 # Source directories to scan for scripts (non-recursive; list subfolders explicitly)
 SOURCE_DIRS=(
@@ -341,6 +341,18 @@ build_script() {
     local bundled_size
     bundled_size=$(wc -c < "$bundled" | tr -d ' ')
     log_success "  Bundled: ${bundled_size} bytes"
+
+    # Break luabundler's entry tail call. LuaJIT tail calls replace the
+    # caller's stack frame, so `return __bundle_require("__root")` erases the
+    # main chunk from the call stack and ResolveKit's getScriptPath() (a
+    # stack walk for the main chunk) fails in every bundled build while dev
+    # copies work. Keep the entry invocation non-tail.
+    if [ "$(tail -n 1 "$bundled")" != 'return __bundle_require("__root")' ]; then
+        log_error "  Unexpected luabundler footer; update the entry tail-call fix"
+        return 1
+    fi
+    { sed '$d' "$bundled"; printf 'local __bundle_main = __bundle_require("__root")\nreturn __bundle_main\n'; } > "$bundled.notail"
+    mv "$bundled.notail" "$bundled"
 
     # Step 2: Minify
     log_info "  Minifying..."

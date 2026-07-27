@@ -1,6 +1,6 @@
 local SCRIPT_INFO = {
     NAME = "Renamer",
-    VERSION = "1.0.0",
+    VERSION = "1.0.1",
     MIN_RESOLVE = "20.0",
 }
 -- SPDX-License-Identifier: GPL-3.0-only

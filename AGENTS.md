@@ -106,7 +106,7 @@ All runtime files a script generates (settings, state, undo data, logs, launcher
 - `.data/` for state/settings/logs — get the path via `utils.getDataDir()` (create with `utils.createDirectory` before writing)
 - `.bin/` for generated shell launchers (StreamDeck scripts)
 
-Rationale: uninstalling = deleting one folder; on macOS the installed EditorScripts path is system-wide (no username), so StreamDeck commands referencing it are portable across machines. The dot prefix keeps the folders out of Resolve's Scripts menu (which builds submenus from subfolders) and Finder. Name files with a script-specific prefix (e.g. `renamer_undo.json`, `node_toggle.log`) since all installed scripts share one `.data` folder. User-directed output files (exports, stills) go wherever the user chooses — this convention is only for internal bookkeeping.
+Rationale: uninstalling = deleting one folder. Installs are per-user on both platforms (Resolve maps `Scripts:/` to `~/Library` on macOS and `%APPDATA%` on Windows), so StreamDeck commands that embed install paths must be re-copied per machine/account. The dot prefix keeps the folders out of Resolve's Scripts menu (which builds submenus from subfolders) and Finder. Name files with a script-specific prefix (e.g. `renamer_undo.json`, `node_toggle.log`) since all installed scripts share one `.data` folder. User-directed output files (exports, stills) go wherever the user chooses — this convention is only for internal bookkeeping.
 
 ## DaVinci Resolve API Patterns
 
@@ -276,7 +276,9 @@ Never bump `SCRIPT_INFO.VERSION` automatically. Versions are bumped manually whe
 ./build.sh markers_to_stills      # Build only this script (by source filename, no .lua)
 ```
 
-Pipeline: `luabundler` (bundle) → `luasrcdiet --basic` (minify) → prepend copyright → generate installer → `dist/`.
+Pipeline: `luabundler` (bundle) → break the entry tail call → `luasrcdiet --basic` (minify) → prepend copyright → generate installer → `dist/`.
+
+**The bundle's entry invocation must never be a tail call.** LuaJIT tail calls replace the caller's stack frame, so luabundler's closing `return __bundle_require("__root")` erases the main chunk from the call stack — which blinds ResolveKit's `getScriptPath()` stack walk in every bundled build while dev copies keep working. build.sh rewrites the footer to a local-then-return; keep that step intact when touching the pipeline.
 
 Scripts are auto-discovered from `src/scripts/` and `personal/` (non-recursive); NAME and VERSION are extracted from the `SCRIPT_INFO` block in each file's first 10 lines. No registration needed.
 

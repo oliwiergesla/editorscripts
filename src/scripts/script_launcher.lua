@@ -1,6 +1,6 @@
 local SCRIPT_INFO = {
     NAME = "Script Launcher",
-    VERSION = "1.0.0",
+    VERSION = "1.0.1",
     MIN_RESOLVE = "20.0",
 }
 -- SPDX-License-Identifier: GPL-3.0-only
@@ -21,10 +21,10 @@ local SCRIPT_INFO = {
         - Setup UI installs the launcher in .bin/ next to this script and
           builds the Stream Deck command for you (Copy Command, Test)
         - Commands store only "<launcher> <slug>" - no absolute target
-          paths - so buttons survive reinstalls, scripts moving between
-          folders, and (on macOS, where the install path has no username)
-          machine moves; a fresh machine only needs this window opened
-          once to regenerate the launcher
+          paths - so buttons survive reinstalls and scripts moving
+          between folders; the launcher path itself is per-user (Resolve
+          maps Scripts:/ to ~/Library on macOS), so a new machine or
+          account needs this window opened once and commands re-copied
         - On Windows, Stream Deck's Open action cannot pass arguments, so
           Copy Command writes a per-slug .vbs with the slug baked in and
           copies just that file's path
@@ -90,8 +90,9 @@ end
 --            presses - the CLI tees its own log instead. The target log's
 --            exclusive handle is kept ON PURPOSE: it makes launched
 --            scripts single-instance on Windows.
--- Caveat: the Windows install path lives under per-user %APPDATA%, so the
--- alongside-the-script layout is not cross-machine portable there.
+-- Caveat: installs land in per-user folders on both platforms (macOS maps
+-- Scripts:/ to ~/Library; Windows uses %APPDATA%), so the
+-- alongside-the-script layout is not cross-machine portable.
 -- ============================================================================
 
 local FUSCRIPT_MAC = "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fuscript"
@@ -136,6 +137,9 @@ local function getOwnScriptPath(osName)
     if osName == "mac" then
         candidates = {
             "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility/EditorScripts/" .. SCRIPT_INFO.NAME .. ".lua",
+            -- Resolve maps Scripts:/ to the per-user Library folder on macOS,
+            -- so suite installs land there rather than in system /Library
+            (os.getenv("HOME") or "") .. "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility/EditorScripts/" .. SCRIPT_INFO.NAME .. ".lua",
             "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility/scripts/script_launcher.lua",
         }
     elseif osName == "windows" then
