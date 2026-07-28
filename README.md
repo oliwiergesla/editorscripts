@@ -34,8 +34,8 @@ Created by [Oliwier Gesla](https://oliwiergesla.com.au).
 Every script ships in one installer file.
 
 1. Download the installer from the [latest release](https://github.com/oliwiergesla/editorscripts/releases/latest).
-2. In DaVinci Resolve, open **Workspace → Console**.
-3. Drag the installer file into the **Console**.
+2. In DaVinci Resolve, open the **Fusion** page.
+3. Drag the installer file anywhere into the Fusion page.
 4. Click **Install** to get everything — or **Custom Installation** to pick individual scripts.
 
 Once installed, run any script from **Workspace → Scripts → Comp → EditorScripts → _\<Script Name\>_**.

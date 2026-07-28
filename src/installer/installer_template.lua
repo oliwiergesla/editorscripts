@@ -5,8 +5,8 @@
 ================================================================================
 EditorScripts Installer
 ================================================================================
-This is an auto-generated installer script. Drag it into DaVinci Resolve's
-Fusion Console to install the embedded script(s).
+This is an auto-generated installer script. Drag it anywhere into DaVinci
+Resolve's Fusion page to install the embedded script(s).
 
 One template serves both installer flavors: a single-script installer
 (SCRIPTS has one entry; classic Install/Cancel flow, always overwrites) and
@@ -58,8 +58,8 @@ local TOOLS = {
 -- ============================================================================
 
 if not app then
-    error("\n\n[EditorScripts Installer] This script must be run by dragging it into the Fusion Console.\n" ..
-          "In DaVinci Resolve: Workspace > Console, then drag this file into the Console.\n")
+    error("\n\n[EditorScripts Installer] This script must be run from inside DaVinci Resolve.\n" ..
+          "Open the Fusion page, then drag this file anywhere into it.\n")
 end
 
 -- ============================================================================
