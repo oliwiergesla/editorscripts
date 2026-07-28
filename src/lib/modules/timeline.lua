@@ -619,6 +619,106 @@ function Timeline.replaceClip(project, timeline, mediaPool, oldClipInfo, newMedi
 end
 
 -- ============================================================================
+-- TIMELINE SETTINGS OPERATIONS
+-- ============================================================================
+
+-- Output color keys the API refuses to write while "separate color space and
+-- gamma" is active (same limitation settings_sync works around)
+local OUTPUT_COLOR_KEYS = {
+    colorSpaceOutput = true,
+    colorSpaceOutputGamma = true,
+}
+
+-- Keys never restored by enableCustomTimelineSettings: resolution belongs to
+-- callers; useCustomSettings is the flip itself
+local RESTORE_SKIP_KEYS = {
+    useCustomSettings = true,
+    timelineResolutionWidth = true,
+    timelineResolutionHeight = true,
+}
+
+-- Frame rate keys cannot be written via the scripting API
+local function isFrameRateKey(key)
+    return string.find(key, "FrameRate") ~= nil
+end
+
+-- Enable custom settings on a timeline, preserving inherited project settings.
+-- A raw useCustomSettings flip resets color preferences (color science, color
+-- spaces, ...) on timelines that had "Use Project Settings" ticked. While that
+-- flag is "0" the timeline's effective settings ARE the project's, so this
+-- snapshots project:GetSetting() before the flip and re-applies the values
+-- afterwards. The timeline's own settings dict defines WHICH keys to restore
+-- (the project dict has project-only keys a timeline won't accept); the
+-- project dict supplies the values, falling back to the timeline dict for
+-- timeline-only keys. Does not require the timeline to be current.
+-- Parameters:
+--   project: Project object (source of inherited values)
+--   timeline: Timeline object to enable custom settings on
+-- Returns: stats {wasInherited, preservedCount, skippedCount, failedKeys}, error
+--   wasInherited false means the timeline already used custom settings and
+--   nothing was written; skippedCount counts API-limitation skips only
+function Timeline.enableCustomTimelineSettings(project, timeline)
+    if not project or not timeline then
+        return nil, "Invalid project or timeline"
+    end
+
+    local stats = {wasInherited = false, preservedCount = 0,
+                   skippedCount = 0, failedKeys = {}}
+
+    -- useCustomSettings is not in the no-arg settings dict; read it by key
+    if timeline:GetSetting("useCustomSettings") == "1" then
+        return stats, nil
+    end
+    stats.wasInherited = true
+
+    -- Snapshot BEFORE the flip, while values are still project-inherited
+    local timelineDict = timeline:GetSetting() or {}
+    local projectDict = project:GetSetting() or {}
+
+    -- Every other SetSetting call fails while useCustomSettings is "0"
+    if not timeline:SetSetting("useCustomSettings", "1") then
+        return nil, "Could not enable custom settings"
+    end
+
+    -- Timeline-key namespace, project-dict values
+    local restore = {}
+    for key, tlValue in pairs(timelineDict) do
+        if not RESTORE_SKIP_KEYS[key] and not isFrameRateKey(key) then
+            local value = projectDict[key]
+            if value == nil then value = tlValue end
+            restore[key] = value
+        end
+    end
+
+    -- separateColorSpaceAndGamma must land first so dependent color keys are
+    -- written in the right mode; its value gates the output-key skip below
+    local separateValue = restore["separateColorSpaceAndGamma"]
+    local separateOn = tostring(separateValue or "") == "1"
+    if separateValue ~= nil then
+        restore["separateColorSpaceAndGamma"] = nil
+        if timeline:SetSetting("separateColorSpaceAndGamma", separateValue) then
+            stats.preservedCount = stats.preservedCount + 1
+        else
+            table.insert(stats.failedKeys, "separateColorSpaceAndGamma")
+        end
+    end
+
+    -- Blind re-writes are cheap (SetSetting same-value fast path); individual
+    -- failures are collected, never fatal (some keys are context-gated)
+    for key, value in pairs(restore) do
+        if separateOn and OUTPUT_COLOR_KEYS[key] then
+            stats.skippedCount = stats.skippedCount + 1
+        elseif timeline:SetSetting(key, value) then
+            stats.preservedCount = stats.preservedCount + 1
+        else
+            table.insert(stats.failedKeys, key)
+        end
+    end
+
+    return stats, nil
+end
+
+-- ============================================================================
 -- RETURN MODULE
 -- ============================================================================
 

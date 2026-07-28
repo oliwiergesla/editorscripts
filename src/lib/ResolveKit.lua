@@ -178,6 +178,9 @@ ResolveKit.getLastEnabledFrame = Timeline.getLastEnabledFrame
 ResolveKit.findClipsByNames = Timeline.findClipsByNames
 ResolveKit.replaceClip = Timeline.replaceClip
 
+-- Timeline Settings Operations
+ResolveKit.enableCustomTimelineSettings = Timeline.enableCustomTimelineSettings
+
 -- ============================================================================
 -- UI FUNCTIONS (from ui.lua)
 -- ============================================================================

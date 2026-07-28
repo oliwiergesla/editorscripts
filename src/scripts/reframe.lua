@@ -1,6 +1,6 @@
 local SCRIPT_INFO = {
     NAME = "Reframe",
-    VERSION = "1.0.1",
+    VERSION = "1.0.2",
     MIN_RESOLVE = "20.0",
 }
 
@@ -373,10 +373,25 @@ local function processTimeline(project, timelineInfo, targetResolution, resetVer
         return false, "Failed to duplicate timeline", 0
     end
 
-    -- Change timeline resolution
-    local success = duplicatedTimeline:SetSetting("useCustomSettings", "1")
-    if not success then
-        utils.printWarning("Could not enable custom settings for: " .. newName)
+    -- Enable custom settings, preserving inherited project settings: a raw
+    -- useCustomSettings flip resets color prefs on timelines that had
+    -- "Use Project Settings" ticked
+    local settingsStats, settingsErr = utils.enableCustomTimelineSettings(project, duplicatedTimeline)
+    if not settingsStats then
+        utils.printWarning("Could not enable custom settings for: " .. newName ..
+            (settingsErr and (" (" .. settingsErr .. ")") or ""))
+    else
+        if settingsStats.wasInherited then
+            local note = "  Preserved " .. settingsStats.preservedCount .. " inherited project setting(s)"
+            if settingsStats.skippedCount > 0 then
+                note = note .. " (" .. settingsStats.skippedCount .. " skipped, API limitation)"
+            end
+            print(note)
+        end
+        if #settingsStats.failedKeys > 0 then
+            utils.printWarning("Could not restore " .. #settingsStats.failedKeys ..
+                " setting(s) for " .. newName .. ": " .. table.concat(settingsStats.failedKeys, ", "))
+        end
     end
 
     local widthSet = duplicatedTimeline:SetSetting("timelineResolutionWidth", targetResolution.width)

@@ -1,6 +1,6 @@
 local SCRIPT_INFO = {
     NAME = "Marker Reports",
-    VERSION = "1.0.1",
+    VERSION = "1.0.2",
     MIN_RESOLVE = "20.0",
 }
 
