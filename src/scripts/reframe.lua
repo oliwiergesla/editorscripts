@@ -18,7 +18,8 @@ local SCRIPT_INFO = {
         - Resolve-style resolution picker with standard and vertical preset lists
         - Custom width/height entry (editing the fields switches to Custom)
         - Optionally resets the version suffix to V1
-        - Removes disabled clips from the duplicated timelines
+        - Optionally removes disabled clips from the duplicated timelines
+          (off by default)
 
     Usage:
         1. Select one or more timelines in the Media Pool
@@ -292,6 +293,17 @@ local function buildResolutionDialog(ui, dispatcher)
                     Font = ui:Font{PixelSize = 11},
                 },
 
+                ui:VGap(8),
+
+                -- Remove disabled clips checkbox (off by default: deletion
+                -- forces a current-timeline switch per duplicate)
+                ui:CheckBox{
+                    ID = 'RemoveDisabledCheck',
+                    Text = "Remove disabled clips",
+                    Checked = false,
+                    Font = ui:Font{PixelSize = 11},
+                },
+
                 ui:VGap(16),
 
                 -- Create Timelines button (full width)
@@ -338,7 +350,7 @@ end
 
 
 -- Function to process a single timeline with smart UI switching
-local function processTimeline(project, timelineInfo, targetResolution, resetVersion)
+local function processTimeline(project, timelineInfo, targetResolution, resetVersion, removeDisabled)
     local timeline = timelineInfo.timeline
     local timelineName = timelineInfo.name
 
@@ -375,39 +387,41 @@ local function processTimeline(project, timelineInfo, targetResolution, resetVer
                            " (timeline was created; verify its settings)")
     end
 
-    -- Scan for disabled clips without switching the current timeline; only switch if needed
-    local disabledClipsInfo, scanErr = utils.findDisabledClips(duplicatedTimeline, true, true)
-
     local clipsDeleted = 0
 
-    if disabledClipsInfo and disabledClipsInfo.totalCount > 0 then
-        -- Disabled clips found - need to switch to UI to delete them
-        print("  Found " .. disabledClipsInfo.totalCount .. " disabled clip(s) to remove")
+    if removeDisabled then
+        -- Scan for disabled clips without switching the current timeline; only switch if needed
+        local disabledClipsInfo, scanErr = utils.findDisabledClips(duplicatedTimeline, true, true)
 
-        -- Set the duplicated timeline as current for deletion
-        local setSuccess, setErr = utils.setCurrentTimeline(project, duplicatedTimeline)
-        if not setSuccess then
-            utils.printWarning("Could not set timeline as current for deletion: " .. (setErr or "Unknown error"))
-            -- Continue anyway - timeline was created successfully even if clips weren't deleted
-        else
-            -- Now delete the disabled clips
-            local deleteStats, deleteErr = utils.deleteDisabledClips(duplicatedTimeline, true, true)
+        if disabledClipsInfo and disabledClipsInfo.totalCount > 0 then
+            -- Disabled clips found - need to switch to UI to delete them
+            print("  Found " .. disabledClipsInfo.totalCount .. " disabled clip(s) to remove")
 
-            if deleteStats then
-                clipsDeleted = deleteStats.totalDeleted
-                if clipsDeleted > 0 then
-                    print("  Removed " .. clipsDeleted .. " disabled clip(s) (" ..
-                          deleteStats.videoDeleted .. " video, " .. deleteStats.audioDeleted .. " audio)")
+            -- Set the duplicated timeline as current for deletion
+            local setSuccess, setErr = utils.setCurrentTimeline(project, duplicatedTimeline)
+            if not setSuccess then
+                utils.printWarning("Could not set timeline as current for deletion: " .. (setErr or "Unknown error"))
+                -- Continue anyway - timeline was created successfully even if clips weren't deleted
+            else
+                -- Now delete the disabled clips
+                local deleteStats, deleteErr = utils.deleteDisabledClips(duplicatedTimeline, true, true)
+
+                if deleteStats then
+                    clipsDeleted = deleteStats.totalDeleted
+                    if clipsDeleted > 0 then
+                        print("  Removed " .. clipsDeleted .. " disabled clip(s) (" ..
+                              deleteStats.videoDeleted .. " video, " .. deleteStats.audioDeleted .. " audio)")
+                    end
+                elseif deleteErr then
+                    utils.printWarning("Could not delete disabled clips: " .. deleteErr)
                 end
-            elseif deleteErr then
-                utils.printWarning("Could not delete disabled clips: " .. deleteErr)
             end
+        elseif disabledClipsInfo then
+            -- No disabled clips found - no UI switch needed
+            print("  No disabled clips to remove")
+        elseif scanErr then
+            utils.printWarning("Could not scan for disabled clips: " .. scanErr)
         end
-    elseif disabledClipsInfo then
-        -- No disabled clips found - no UI switch needed
-        print("  No disabled clips to remove")
-    elseif scanErr then
-        utils.printWarning("Could not scan for disabled clips: " .. scanErr)
     end
 
     utils.printSuccess("Created: " .. newName)
@@ -486,10 +500,11 @@ local function rebuildCombo(vertical, w, h)
 end
 
 -- Run one batch from the OK button handler; the main dialog stays visible
-local function runCreate(selectedResolution, resetVersion)
+local function runCreate(selectedResolution, resetVersion, removeDisabled)
     -- Display selected settings
     print("\nSelected Resolution: " .. selectedResolution.width .. "x" .. selectedResolution.height)
     print("Reset Version: " .. (resetVersion and "V1" or "No"))
+    print("Remove Disabled Clips: " .. (removeDisabled and "Yes" or "No"))
 
     -- Get selected timelines from Media Pool (check directly in handler)
     local selectedTimelines = utils.requireSelectedTimelines(project, mediaPool, ui, dispatcher)
@@ -528,7 +543,7 @@ local function runCreate(selectedResolution, resetVersion)
             progress.update(i, timelineName, string.format('[%d/%d] Processing: %s -> %s\n', i, timelineCount, timelineName, resStr))
         end
 
-        local success, procErr, clipsDeleted = processTimeline(project, timelineInfo, selectedResolution, resetVersion)
+        local success, procErr, clipsDeleted = processTimeline(project, timelineInfo, selectedResolution, resetVersion, removeDisabled)
 
         if success then
             successCount = successCount + 1
@@ -627,7 +642,8 @@ function dialog.On.OkButton.Clicked(ev)
             utils.showErrorDialog(ui, dispatcher, werr or herr, "Invalid Resolution")
             return
         end
-        runCreate({width = w, height = h}, itm.ResetVersionCheck.Checked)
+        runCreate({width = w, height = h}, itm.ResetVersionCheck.Checked,
+            itm.RemoveDisabledCheck.Checked)
     end)
 end
 
