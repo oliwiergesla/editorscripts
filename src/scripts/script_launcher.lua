@@ -1,6 +1,6 @@
 local SCRIPT_INFO = {
     NAME = "Script Launcher",
-    VERSION = "1.0.1",
+    VERSION = "1.0.2",
     MIN_RESOLVE = "20.0",
 }
 -- SPDX-License-Identifier: GPL-3.0-only
@@ -108,6 +108,13 @@ local function detectOS()
     return "unknown"
 end
 
+-- fuscript's LuaJIT is built with 5.2 compat, so os.execute returns
+-- (true|nil, "exit", code) - never the plain 5.1 integer status. Accept
+-- both shapes so a successful spawn is not reported as a failure.
+local function execSucceeded(code)
+    return code == true or code == 0
+end
+
 local function findFuscriptWindows()
     local candidates = {
         (os.getenv("PROGRAMFILES") or "C:\\Program Files")
@@ -197,7 +204,7 @@ local function buildMacPlatform(scriptPath)
         spawnDetached = function(targetPath)
             local code = os.execute(string.format('nohup "%s" "%s" > "%s" 2>&1 &',
                 FUSCRIPT_MAC, targetPath, targetLogPath))
-            return code == 0
+            return execSucceeded(code)
         end,
         -- Run the installed launcher exactly as a Stream Deck press would
         runLauncher = function(launcherPath, slug)
@@ -231,7 +238,7 @@ local function buildWindowsPlatform(scriptPath, fuscriptPath)
         spawnDetached = function(targetPath)
             local code = os.execute(string.format('start "" /b "%s" "%s" > "%s" 2>&1',
                 fuscriptPath, targetPath, targetLogPath))
-            return code == 0
+            return execSucceeded(code)
         end,
         runLauncher = function(launcherPath, slug)
             os.execute(string.format('start "" "%s" %s', launcherPath, slug))
