@@ -50,7 +50,7 @@ REPO_URL="https://github.com/oliwiergesla/editorscripts"
 # Suite installer: one installer bundling every production script from
 # src/scripts/. Bump SUITE_VERSION manually when publishing (repo convention).
 SUITE_NAME="EditorScripts"
-SUITE_VERSION="1.0.1"
+SUITE_VERSION="1.0.2"
 
 # Source directories to scan for scripts (non-recursive; list subfolders explicitly)
 SOURCE_DIRS=(
