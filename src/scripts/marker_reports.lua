@@ -1,6 +1,6 @@
 local SCRIPT_INFO = {
     NAME = "Marker Reports",
-    VERSION = "1.0.2",
+    VERSION = "1.0.3",
     MIN_RESOLVE = "20.0",
 }
 
@@ -18,7 +18,8 @@ local SCRIPT_INFO = {
         - One report set per selected timeline, named after the timeline
         - Filters timeline and clip markers by color, with deduplication
         - Embedded frame thumbnails per marker, or fast text-only reports
-        - Progress window with Cancel for batch runs
+        - Progress window with Cancel for batch runs; cancelling removes
+          everything the run wrote, leaving the output folder untouched
 
     Usage:
         1. Select one or more timelines in the Media Pool
@@ -216,8 +217,9 @@ end
 -- header { project, sequence, date }; `rows` is a list of { jpegPath, startTC,
 -- endTC, duration, name, note, color }; `formats` is { pdf = bool, xlsx = bool }.
 -- Text-only reports (withThumbs false) drop the image column entirely. Returns
--- the count of report files written. Wrapped by the caller in pcall; a failure
--- here must not abort the batch.
+-- the list of report file paths written (the caller needs them for the cancel
+-- rollback). Wrapped by the caller in pcall; a failure here must not abort the
+-- batch.
 local function writeReports(meta, destDir, rows, formats, withThumbs)
     local writerOpts = { includeImage = withThumbs }
     local writers = {}
@@ -256,7 +258,7 @@ local function writeReports(meta, destDir, rows, formats, withThumbs)
     end
 
     local base = utils.sanitizeFilename(meta.sequence or "Markers")
-    local written = 0
+    local written = {}
 
     for _, w in ipairs(writers) do
         local bytes = w.writer:build()
@@ -267,7 +269,7 @@ local function writeReports(meta, destDir, rows, formats, withThumbs)
                 if f then
                     f:write(bytes)
                     f:close()
-                    written = written + 1
+                    written[#written + 1] = path
                     print(string.format("  Report: %s", path))
                 end
             end
@@ -344,6 +346,7 @@ local function processTimelines(ctx, timelines, outputPath, options)
     local attemptedMarkers = 0
     local markersIncluded = 0
     local reportFilesWritten = 0
+    local writtenReportPaths = {}  -- every file this run wrote, for the cancel rollback
     local failedTimelines = 0
     local lastFinalized = 0
 
@@ -375,9 +378,9 @@ local function processTimelines(ctx, timelines, outputPath, options)
         end
 
         -- Build one report row per marker. Break BEFORE the increment so
-        -- attemptedMarkers stays "markers attempted"; a cancel falls through to
-        -- the report write + tmp cleanup below so the timeline still finalizes
-        -- with the rows collected so far.
+        -- attemptedMarkers stays "markers attempted"; a cancel skips the
+        -- report write below (the rollback after the loop deletes anything
+        -- already on disk) but still falls through to the tmp cleanup.
         local rows = {}
         for _, markerData in ipairs(entry.markers) do
             if progress and progress.isCancelled() then break end
@@ -418,8 +421,14 @@ local function processTimelines(ctx, timelines, outputPath, options)
             }
         end
 
+        -- A cancel landing after the last marker was already processed is
+        -- completion, not cancellation, so that timeline's report still writes
+        -- (mirrors the wasCancelled test below)
+        local runCancelled = progress ~= nil and progress.isCancelled()
+                             and attemptedMarkers < totalMarkers
+
         -- Write this timeline's reports (best-effort: never abort the batch)
-        if #rows > 0 then
+        if #rows > 0 and not runCancelled then
             if progress then
                 progress.update(tIdx - 1, "Report",
                     string.format('[%d/%d] %s - writing report file(s)...', tIdx, totalTimelines, timelineName))
@@ -432,7 +441,10 @@ local function processTimelines(ctx, timelines, outputPath, options)
             local ok, resultOrErr = pcall(writeReports, meta, outputPath, rows,
                 options.formats, options.withThumbs)
             if ok then
-                reportFilesWritten = reportFilesWritten + (resultOrErr or 0)
+                for _, path in ipairs(resultOrErr) do
+                    writtenReportPaths[#writtenReportPaths + 1] = path
+                end
+                reportFilesWritten = reportFilesWritten + #resultOrErr
                 markersIncluded = markersIncluded + #rows
             else
                 failedTimelines = failedTimelines + 1
@@ -444,6 +456,8 @@ local function processTimelines(ctx, timelines, outputPath, options)
         if tmpDir then
             cleanupReportTmp(tmpDir, rows)
         end
+
+        if runCancelled then break end
 
         lastFinalized = tIdx
 
@@ -458,11 +472,27 @@ local function processTimelines(ctx, timelines, outputPath, options)
     local wasCancelled = progress ~= nil and progress.isCancelled()
                          and attemptedMarkers < totalMarkers
 
+    -- Cancel rolls the whole run back: delete every report this run wrote so
+    -- the output folder looks like the export never started. Paths came from
+    -- getUniqueFilePath, so pre-existing files are never touched.
+    local removedFiles = 0
+    if wasCancelled then
+        for _, path in ipairs(writtenReportPaths) do
+            if os.remove(path) then
+                removedFiles = removedFiles + 1
+            end
+        end
+        reportFilesWritten = 0
+        markersIncluded = 0
+    end
+
     -- Final progress update
     if progress then
         local finalMsg
         if wasCancelled then
-            finalMsg = string.format("Cancelled - wrote %d report file(s)", reportFilesWritten)
+            finalMsg = removedFiles > 0
+                and string.format("Cancelled - removed %d partial report file(s)", removedFiles)
+                or "Cancelled - no reports were written"
         elseif failedTimelines == 0 then
             finalMsg = string.format("Complete! Wrote %d report file(s)", reportFilesWritten)
         else
@@ -485,6 +515,9 @@ local function processTimelines(ctx, timelines, outputPath, options)
     if wasCancelled then
         utils.printWarning(string.format("Cancelled by user - processed %d of %d timeline(s)",
             lastFinalized, totalTimelines))
+        if removedFiles > 0 then
+            utils.printStatus("INFO", string.format("Removed %d partial report file(s)", removedFiles))
+        end
     end
     print(string.format("  Timelines processed: %d of %d", lastFinalized, totalTimelines))
     print(string.format("  Markers included: %d", markersIncluded))
@@ -757,14 +790,12 @@ local function runExport(options)
 
     utils.printSeparator("=", 70)
 
+    -- A cancelled run always rolls back to zero files, so success and
+    -- wasCancelled are mutually exclusive
     if success then
-        if wasCancelled then
-            utils.printWarning("Cancelled - partial report set kept on disk")
-        else
-            utils.printSuccess("Marker report export completed successfully!")
-        end
+        utils.printSuccess("Marker report export completed successfully!")
     elseif wasCancelled then
-        utils.printWarning("Cancelled before any reports were written")
+        utils.printWarning("Cancelled - all partial output was removed")
     else
         utils.printError("No reports were written")
     end
