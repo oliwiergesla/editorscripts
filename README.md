@@ -20,12 +20,15 @@ Created by [Oliwier Gesla](https://oliwiergesla.com.au).
 - **Marker Reports** — Export marker reports as PDF or Excel.
 - **Marker Sync** — Copy markers from one timeline to many.
 - **Markers to Stills** — Export still frames from markers.
-- **Node Toggle** — Toggle color nodes with a Stream Deck.
+- **[Node Toggle](docs/node_toggle.md)** — Toggle color nodes with a Stream Deck.
 - **Reframe** — Duplicate selected timelines at a new resolution.
 - **Renamer** — Batch rename timelines and clips.
 - **Script Launcher** — Launch any Resolve script from a Stream Deck.
 - **Settings Sync** — Copy timeline settings from one timeline to many.
 - **Version Up** — Duplicate timelines with an incremented version number.
+
+> [!NOTE]
+> In-depth documentation for each script is currently in progress and will be updated soon.
 
 <img src="assets/EditorScriptsInstaller_V1.png" alt="EditorScripts" width="100%">
 
@@ -38,7 +41,7 @@ Every script ships in one installer file.
 3. Drag the installer file anywhere into the Fusion page.
 4. Click **Install** to get everything — or **Custom Installation** to pick individual scripts.
 
-Once installed, run any script from **Workspace → Scripts → Comp → EditorScripts → _\<Script Name\>_**.
+Once installed, run any script from **Workspace → Scripts → EditorScripts → _\<Script Name\>_**.
 
 **Updating:** download the latest installer and drag it in again — it updates outdated scripts and skips anything already up to date.
 
