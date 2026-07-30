@@ -1,6 +1,6 @@
 local SCRIPT_INFO = {
     NAME = "Version Up",
-    VERSION = "1.0.2",
+    VERSION = "1.1.0",
     MIN_RESOLVE = "20.0",
 }
 
@@ -21,6 +21,8 @@ local SCRIPT_INFO = {
         - Bumps the RIGHTMOST version token when a name contains several
           (e.g. "Client_V1 Masters_V3 copy" -> "Client_V1 Masters_V4 copy")
         - Adds _V02 at the end when no version is found
+        - Warns when the bumped name is already taken and offers the next
+          available version (collision-free runs stay silent)
         - Files originals into a "Versions" bin
 
     Usage:
@@ -198,6 +200,68 @@ local function replaceVersion(timelineName, versionInfo, newVersionNum)
         .. timelineName:sub(versionInfo.replaceEnd + 1)
 end
 
+-- Format a candidate name for an absolute version number. Generalizes the
+-- no-token fallback so probing continues _V02, _V03, ... (the unversioned
+-- original is treated as version 1)
+local function buildVersionName(oldName, versionInfo, versionNum)
+    if versionInfo then
+        return replaceVersion(oldName, versionInfo, versionNum)
+    end
+    return oldName .. string.format("_V%02d", versionNum)
+end
+
+-- How many version numbers to probe before giving up
+local MAX_VERSION_PROBES = 1000
+
+-- Find the smallest free version strictly above the bumped one
+-- Returns: {name, number}, nil (or nil, error)
+local function findNextAvailableName(oldName, versionInfo, bumpedVersion, takenNames)
+    for candidate = bumpedVersion + 1, bumpedVersion + MAX_VERSION_PROBES do
+        local name = buildVersionName(oldName, versionInfo, candidate)
+        if not takenNames[name] then
+            return { name = name, number = candidate }, nil
+        end
+    end
+    return nil, string.format("No free version number within %d tries", MAX_VERSION_PROBES)
+end
+
+-- ============================================================================
+-- COLLISION WARNING DIALOG
+-- ============================================================================
+
+-- Warn that bumped name(s) already exist in the project. Returns true to
+-- redirect every colliding timeline to its next available version, false to
+-- cancel the whole batch (closing the window also cancels).
+-- Copy stays deliberately minimal (name stated once, informal V token);
+-- per-collision detail goes to the console instead.
+local function showCollisionDialog(ui, dispatcher, collisions)
+    local lines
+    if #collisions == 1 then
+        lines = {
+            string.format("%s already exists.", collisions[1].takenName),
+            "",
+            string.format("Next available version: V%d", collisions[1].nextVersion),
+        }
+    else
+        lines = {
+            string.format("%d version names already exist.", #collisions),
+            "",
+            "Each will use its next available version.",
+        }
+    end
+
+    return utils.showStatusDialog(ui, dispatcher, {
+        icon = 'warning',
+        title = 'Version Already Exists',
+        message = table.concat(lines, "\n"),
+        closeValue = false,
+        buttons = {
+            { id = 'CancelBtn', text = 'Cancel', value = false, style = 'secondary' },
+            { id = 'UseNextBtn', text = 'Use Next Available Version', value = true, style = 'primary' },
+        },
+    })
+end
+
 -- ============================================================================
 -- MAIN SCRIPT
 -- ============================================================================
@@ -224,7 +288,71 @@ local function main()
 
     print(string.format("\nFound %d timeline(s) selected", #selectedTimelines))
 
-    -- Get or create Versions bin
+    -- Phase 1: pre-compute all operations (no API calls)
+    local operations = {}
+    for i, item in ipairs(selectedTimelines) do
+        local versionInfo = detectVersionInfo(item.name)
+        local bumpedVersion = versionInfo and (versionInfo.number + 1) or 2
+
+        table.insert(operations, {
+            index = i,
+            timeline = item.timeline,
+            originalClip = item.clipItem,
+            oldName = item.name,
+            newName = buildVersionName(item.name, versionInfo, bumpedVersion),
+            bumpedVersion = bumpedVersion,
+            versionInfo = versionInfo
+        })
+    end
+
+    -- Collision gate: Resolve refuses to create a timeline under a name that
+    -- already exists, so DuplicateTimeline would fail with no visible error.
+    -- Best-effort pre-flight; Phase 2's duplicate-failed path stays as the
+    -- backstop for races and other failures.
+    local takenNames, namesErr = utils.getTimelineNameSet(project)
+    if not takenNames then
+        utils.printError(namesErr or "Could not read timeline names")
+        return
+    end
+
+    local collisions = {}
+    for _, op in ipairs(operations) do
+        if takenNames[op.newName] then
+            local nextInfo, probeErr = findNextAvailableName(
+                op.oldName, op.versionInfo, op.bumpedVersion, takenNames)
+            if not nextInfo then
+                utils.printError(probeErr .. " for " .. op.oldName)
+                utils.showErrorDialog(ctx.ui, ctx.dispatcher, probeErr, SCRIPT_INFO.NAME)
+                return
+            end
+            op.takenName = op.newName
+            op.nextName = nextInfo.name
+            op.nextVersion = nextInfo.number
+            table.insert(collisions, op)
+        end
+        -- Claim both names so within-batch duplicates collide and probe past
+        takenNames[op.newName] = true
+        if op.nextName then
+            takenNames[op.nextName] = true
+        end
+    end
+
+    if #collisions > 0 then
+        utils.printWarning(string.format("%d name conflict(s) detected, asking user", #collisions))
+        for _, op in ipairs(collisions) do
+            utils.printStatus("WARN", string.format("%s already exists, next available is %s",
+                op.takenName, op.nextName))
+        end
+        if not showCollisionDialog(ctx.ui, ctx.dispatcher, collisions) then
+            utils.printWarning("Cancelled by user - no timelines were processed")
+            return
+        end
+        for _, op in ipairs(collisions) do
+            op.newName = op.nextName
+        end
+    end
+
+    -- Get or create Versions bin (after the gate, so a cancel creates nothing)
     local versionsBin, binErr = utils.getBin(mediaPool, "Versions")
     if not versionsBin then
         utils.printError(binErr or "Could not access Versions bin")
@@ -233,32 +361,11 @@ local function main()
 
     utils.printSuccess("Versions bin ready")
 
-    -- Phase 1: pre-compute all operations (no API calls)
-    local operations = {}
-    for i, item in ipairs(selectedTimelines) do
-        local versionInfo = detectVersionInfo(item.name)
-        local newName
-
-        if versionInfo then
-            newName = replaceVersion(item.name, versionInfo, versionInfo.number + 1)
-        else
-            newName = item.name .. "_V02"
-        end
-
-        table.insert(operations, {
-            index = i,
-            timeline = item.timeline,
-            originalClip = item.clipItem,
-            oldName = item.name,
-            newName = newName,
-            versionInfo = versionInfo
-        })
-    end
-
     -- Phase 2: execute operations (duplicate then move, for each timeline)
     utils.printSection("PROCESSING TIMELINES")
     local successCount = 0
     local failCount = 0
+    local redirectCount = 0
 
     for i, op in ipairs(operations) do
         print(string.format("\n[%d/%d] Processing: %s", i, #operations, op.oldName))
@@ -292,6 +399,9 @@ local function main()
         end
 
         utils.printStatus("OK", "Timeline duplicated")
+        if op.takenName then
+            redirectCount = redirectCount + 1
+        end
 
         -- Move the original timeline to Versions bin immediately
         if op.originalClip and mediaPool then
@@ -314,6 +424,9 @@ local function main()
     -- Print summary
     utils.printHeader("Summary")
     print(string.format("Successfully processed: %d", successCount))
+    if redirectCount > 0 then
+        print(string.format("Used next available version: %d", redirectCount))
+    end
     if failCount > 0 then
         print(string.format("Failed: %d", failCount))
     end

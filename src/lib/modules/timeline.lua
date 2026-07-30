@@ -168,6 +168,22 @@ function Timeline.getAllTimelines(project)
     return timelines, nil
 end
 
+-- Get the set of all timeline names in the project: { [name] = true }
+-- Returns: set, nil (or nil, error)
+function Timeline.getTimelineNameSet(project)
+    local all, err = Timeline.getAllTimelines(project)
+    if not all then
+        return nil, err
+    end
+
+    local names = {}
+    for _, item in ipairs(all) do
+        names[item.name] = true
+    end
+
+    return names, nil
+end
+
 -- ============================================================================
 -- MARKER OPERATIONS
 -- ============================================================================

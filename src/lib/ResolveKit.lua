@@ -155,6 +155,7 @@ ResolveKit.setCurrentTimeline = Timeline.setCurrentTimeline
 ResolveKit.getTimelineResolution = Timeline.getTimelineResolution
 ResolveKit.setTimelineFlag = Timeline.setTimelineFlag
 ResolveKit.getAllTimelines = Timeline.getAllTimelines
+ResolveKit.getTimelineNameSet = Timeline.getTimelineNameSet
 
 -- Marker Operations
 ResolveKit.countMarkers = Timeline.countMarkers
