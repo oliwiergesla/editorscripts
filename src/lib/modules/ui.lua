@@ -652,18 +652,57 @@ function UI.showStatusDialog(ui, dispatcher, options)
     local CONTENT_WIDTH = DIALOG_WIDTH - (DIALOG_PADDING * 2)
     local ICON_SIZE = {CONTENT_WIDTH, 70}
 
-    -- Estimate message height from content to auto-size the dialog. Slightly
-    -- conservative (wider CHAR_WIDTH, taller LINE_HEIGHT) so the WordWrap label
-    -- is allocated enough room and the final line never clips.
+    -- Qt's WordWrap breaks at word boundaries only: a single token wider than
+    -- the content area (a long filename, timeline name, path) refuses to wrap
+    -- and instead forces the entire window wider, breaking the fixed-width
+    -- layout. Pre-break such tokens with newlines so they wrap in place. The
+    -- chunk size assumes worst-case glyph widths (all caps/digits render at
+    -- ~7.6px/char, measured live on macOS), narrower than the average width
+    -- the line estimate uses, so a full chunk can never exceed the content
+    -- width.
+    local WORST_CASE_CHAR_WIDTH = 8
+    local wrapChars = math.floor(CONTENT_WIDTH / WORST_CASE_CHAR_WIDTH)
+    statusMessage = statusMessage:gsub("%S+", function(word)
+        if #word <= wrapChars then return word end
+        local parts = {}
+        for i = 1, #word, wrapChars do
+            parts[#parts + 1] = word:sub(i, i + wrapChars - 1)
+        end
+        return table.concat(parts, "\n")
+    end)
+
+    -- Estimate message height to auto-size the dialog. WordWrap labels cannot
+    -- report their wrapped height (no heightForWidth through UIManager), so
+    -- this simulates Qt's greedy word wrap: words fill a line until the next
+    -- one no longer fits, and a word longer than a whole line hard-wraps
+    -- mid-word. Plain character division undercounts here - a long unbroken
+    -- token (e.g. a timeline name) wraps to its own line early and adds a
+    -- rendered line the character count never sees. Constants err tall (wide
+    -- CHAR_WIDTH, tall LINE_HEIGHT, headroom lines): surplus only pads the
+    -- dialog, a shortfall clips the text.
     local function estimateMessageHeight(message, width)
-        local CHAR_WIDTH = 6.5
-        local LINE_HEIGHT = 15
+        local CHAR_WIDTH = 7
+        local LINE_HEIGHT = 17
+        local HEADROOM_LINES = 2
         local charsPerLine = math.floor(width / CHAR_WIDTH)
         local totalLines = 0
         for segment in (message .. "\n"):gmatch("(.-)\n") do
-            totalLines = totalLines + math.max(1, math.ceil(#segment / charsPerLine))
+            local lines = 1
+            local lineLen = 0
+            for word in segment:gmatch("%S+") do
+                if lineLen == 0 then
+                    lines = lines + math.ceil(#word / charsPerLine) - 1
+                    lineLen = ((#word - 1) % charsPerLine) + 1
+                elseif lineLen + 1 + #word <= charsPerLine then
+                    lineLen = lineLen + 1 + #word
+                else
+                    lines = lines + math.ceil(#word / charsPerLine)
+                    lineLen = ((#word - 1) % charsPerLine) + 1
+                end
+            end
+            totalLines = totalLines + lines
         end
-        return totalLines * LINE_HEIGHT
+        return (totalLines + HEADROOM_LINES) * LINE_HEIGHT
     end
 
     -- Base height covers padding + icon + gaps + title + one button; each extra
