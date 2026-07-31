@@ -24,11 +24,11 @@ Every Resolve install ships the current API docs locally; prefer these over any 
 
 ### Project Structure
 ```
-ResolveScripts/
+editorscripts/
 ├── .claude/                     # Claude configuration
-├── .claude-docs/                # Supplementary documentation
-│   └── official-examples/      # Blackmagic official scripting examples
+├── assets/                      # README and docs images
 ├── build.sh                     # Build pipeline (bundle + minify + installer)
+├── docs/                        # Per-script user documentation pages
 ├── src/
 │   ├── installer/              # Standalone installer template (no ResolveKit dependency)
 │   │   └── tools/             # Utility tools embedded into every installer (dependency-free)
@@ -36,8 +36,6 @@ ResolveScripts/
 │   │   ├── ResolveKit.lua     # Main utility library (facade)
 │   │   └── modules/           # core, timeline, ui, filesystem, media, platform
 │   └── scripts/                # Production scripts (snake_case, flat)
-├── sandbox/                     # Testing and experiments
-├── personal/                    # Private scripts (archive/ inside holds deprecated ones)
 ├── tools/                       # Build helpers and dev utilities
 └── dist/                        # Built scripts (per-script folders with installer)
 ```
@@ -282,7 +280,7 @@ Pipeline: `luabundler` (bundle) → break the entry tail call → `luasrcdiet --
 
 Scripts are auto-discovered from `src/scripts/` and `personal/` (non-recursive); NAME and VERSION are extracted from the `SCRIPT_INFO` block in each file's first 10 lines. No registration needed.
 
-Source files use `snake_case`. Dist artifacts are lowercase kebab-case (`kebab_name()` in build.sh: lowercased, spaces become hyphens, dots dropped, `+` becomes `plus`): the folder is the tool name only with NO version (`markers-to-stills/`); files are name-version-type — `markers-to-stills-v0.11.0.lua` and `markers-to-stills-v0.11.0-installer.lua` — each script keeping its own `SCRIPT_INFO.VERSION` (never unify versions across scripts). Display names with spaces are only written at install time (the embedded install `filename` keeps them — never kebab those), where they read cleanly in the Workspace menu. Resolve menu path: `Workspace > Scripts > Comp > EditorScripts > <Display Name>`.
+Source files use `snake_case`. Dist artifacts are lowercase kebab-case (`kebab_name()` in build.sh: lowercased, spaces become hyphens, dots dropped, `+` becomes `plus`): the folder is the tool name only with NO version (`markers-to-stills/`); files are name-version-type — `markers-to-stills-v1.0.2.lua` and `markers-to-stills-v1.0.2-installer.lua` — each script keeping its own `SCRIPT_INFO.VERSION` (never unify versions across scripts). Display names with spaces are only written at install time (the embedded install `filename` keeps them — never kebab those), where they read cleanly in the Workspace menu. Resolve menu path: `Workspace > Scripts > EditorScripts > <Display Name>`.
 
 **All-in-one installer:** A full `./build.sh` run also generates `dist/editorscripts/editorscripts-v<SUITE_VERSION>-installer.lua` (`SUITE_NAME`/`SUITE_VERSION` in build.sh) — one installer embedding every production script from `src/scripts/` (not `personal/`). This is the ONLY publicly distributed artifact (suite-only distribution; per-script installers are built for dev but not published). It opens with the classic Install/Cancel window plus a Custom Installation button that reveals per-script checkboxes with live status (Not installed / Update available / Up to date). Suite installs never downgrade: scripts whose installed `VERSION` literal is already >= the embedded one are skipped (single-script installers keep always-overwriting). `SUITE_VERSION` in build.sh is bumped manually when publishing. Filtered builds (`./build.sh <script>`) do NOT regenerate the suite — run a full build before publishing. Removing a script from `src/scripts/` drops it from future suites but never uninstalls installed copies. The template and both installer flavors share one file: `SCRIPTS` has one entry for single-script installers, many for the suite (`IS_SUITE` dispatch).
 
