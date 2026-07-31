@@ -44,7 +44,9 @@ LIB_DIR="$SRC_DIR/lib"
 TEMPLATE="$SRC_DIR/installer/installer_template.lua"
 EMBED_TOOL="$SCRIPT_DIR/tools/embed_content.lua"
 
-AUTHOR="Oliwier Gesla / EditorScripts"
+# Copyright holder stamped into built file headers. If you fork this repo to
+# build your own scripts, change this to your own name.
+AUTHOR="Oliwier Gesla"
 REPO_URL="https://github.com/oliwiergesla/editorscripts"
 
 # Suite installer: one installer bundling every production script from
