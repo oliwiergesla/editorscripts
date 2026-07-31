@@ -1,4 +1,4 @@
-<img src="assets/EditorScripts_Header.png" alt="EditorScripts" width="100%">
+<img src="assets/EditorScripts_BrandingImage.png" alt="EditorScripts" width="100%">
 
 # EditorScripts
 A free, open-source toolkit of scripts for **DaVinci Resolve Studio 20+** that streamline workflows for editors and colorists. Drag-and-drop install; every script runs entirely inside Resolve, with nothing else to download or set up.
