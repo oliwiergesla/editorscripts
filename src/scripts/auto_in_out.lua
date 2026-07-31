@@ -1,6 +1,6 @@
 local SCRIPT_INFO = {
     NAME = "Auto In Out",
-    VERSION = "1.0.2",
+    VERSION = "1.0.3",
     MIN_RESOLVE = "20.0",
 }
 
