@@ -1,6 +1,6 @@
 local SCRIPT_INFO = {
     NAME = "Reframe",
-    VERSION = "1.0.2",
+    VERSION = "1.1.0",
     MIN_RESOLVE = "20.0",
 }
 
@@ -11,13 +11,19 @@ local SCRIPT_INFO = {
 
     Reframe
 
-    Duplicates selected timelines with custom resolution and resets version to V1.
+    Duplicates selected timelines with custom resolution and smart renaming.
 
     Features:
         - Duplicates selected timelines at a new resolution
         - Resolve-style resolution picker with standard and vertical preset lists
         - Custom width/height entry (editing the fields switches to Custom)
-        - Optionally resets the version suffix to V1
+        - Auto-detects trailing resolution/version suffixes in the name and
+          rebuilds them (optional; when off the name is left untouched and the
+          new resolution is appended)
+        - Optionally resets the version suffix to V1; when off the existing
+          version suffix is kept
+        - Pre-flight collision check: existing target names get a warning
+          offering the next available version; cancel creates nothing
         - Optionally removes disabled clips from the duplicated timelines
           (off by default)
 
@@ -285,23 +291,31 @@ local function buildResolutionDialog(ui, dispatcher)
 
                 ui:VGap(16),
 
-                -- Reset version checkbox
-                ui:CheckBox{
-                    ID = 'ResetVersionCheck',
-                    Text = "Reset version to V1",
-                    Checked = true,
-                    Font = ui:Font{PixelSize = 11},
-                },
-
-                ui:VGap(8),
-
-                -- Remove disabled clips checkbox (off by default: deletion
-                -- forces a current-timeline switch per duplicate)
-                ui:CheckBox{
-                    ID = 'RemoveDisabledCheck',
-                    Text = "Remove disabled clips",
-                    Checked = false,
-                    Font = ui:Font{PixelSize = 11},
+                -- Options checkboxes
+                ui:VGroup{
+                    Weight = 0,
+                    -- When off, the name is treated as opaque and the
+                    -- version checkbox below is disabled
+                    ui:CheckBox{
+                        ID = 'AutoDetectCheck',
+                        Text = "Auto-detect resolution and version in name",
+                        Checked = true,
+                        Font = ui:Font{PixelSize = 11},
+                    },
+                    ui:CheckBox{
+                        ID = 'ResetVersionCheck',
+                        Text = "Reset version to V1",
+                        Checked = true,
+                        Font = ui:Font{PixelSize = 11},
+                    },
+                    -- Off by default: deletion forces a current-timeline
+                    -- switch per duplicate
+                    ui:CheckBox{
+                        ID = 'RemoveDisabledCheck',
+                        Text = "Remove disabled clips",
+                        Checked = false,
+                        Font = ui:Font{PixelSize = 11},
+                    },
                 },
 
                 ui:VGap(16),
@@ -350,7 +364,7 @@ end
 
 
 -- Function to process a single timeline with smart UI switching
-local function processTimeline(project, timelineInfo, targetResolution, resetVersion, removeDisabled)
+local function processTimeline(project, timelineInfo, newName, targetResolution, removeDisabled)
     local timeline = timelineInfo.timeline
     local timelineName = timelineInfo.name
 
@@ -359,18 +373,13 @@ local function processTimeline(project, timelineInfo, targetResolution, resetVer
     end
 
     print("\nProcessing timeline: " .. timelineName)
-
-    -- Generate the new timeline name
-    local resolutionString = targetResolution.width .. "x" .. targetResolution.height
-    local versionSuffix = resetVersion and "V1" or nil
-    local newName = utils.modifyTimelineName(timelineName, resolutionString, versionSuffix)
     print("  New name: " .. newName)
 
     -- Duplicate the timeline with the new name
     local duplicatedTimeline = timeline:DuplicateTimeline(newName)
 
     if not duplicatedTimeline then
-        return false, "Failed to duplicate timeline", 0
+        return false, "Failed to duplicate timeline (name may already be taken)", 0
     end
 
     -- Enable custom settings, preserving inherited project settings: a raw
@@ -514,11 +523,100 @@ local function rebuildCombo(vertical, w, h)
     suppress = false
 end
 
+-- How many candidate names to probe before giving up
+local MAX_NAME_PROBES = 1000
+
+-- Smallest free candidate from makeName(n), n = startN upward
+-- Returns: name, nil (or nil, error)
+local function findNextAvailableName(makeName, startN, takenNames)
+    for n = startN, startN + MAX_NAME_PROBES - 1 do
+        local name = makeName(n)
+        if not takenNames[name] then
+            return name, nil
+        end
+    end
+    return nil, string.format("No free name within %d tries", MAX_NAME_PROBES)
+end
+
+-- Compute the target name and collision-probe closure for one timeline.
+-- Naming matrix:
+--   auto-detect + reset    -> base_WxH_V1
+--   auto-detect + no reset -> base_WxH + old version token (padding kept),
+--                             or nothing when the name had none
+--   no auto-detect         -> originalName_WxH (name treated as opaque)
+local function buildOperation(timelineInfo, resolutionString, autoDetect, resetVersion)
+    local op = {timeline = timelineInfo.timeline, name = timelineInfo.name}
+
+    local stem, versionToken
+    if autoDetect then
+        local parsed = utils.parseTimelineName(timelineInfo.name)
+        stem = parsed.base .. "_" .. resolutionString
+        versionToken = resetVersion and "V1" or parsed.version
+    else
+        stem = timelineInfo.name .. "_" .. resolutionString
+    end
+
+    if versionToken then
+        -- Probe upward from the token's own number, keeping case and padding
+        local vChar, vDigits = versionToken:match("^([Vv])(%d+)$")
+        local pad = #vDigits
+        op.newName = stem .. "_" .. versionToken
+        op.probeStart = tonumber(vDigits) + 1
+        op.makeName = function(n)
+            return stem .. "_" .. vChar .. string.format("%0" .. pad .. "d", n)
+        end
+    else
+        -- No version component: the unversioned name counts as V1, probe _V2 up
+        op.newName = stem
+        op.probeStart = 2
+        op.makeName = function(n) return stem .. "_V" .. n end
+    end
+    return op
+end
+
+-- Warn that target name(s) already exist. Returns true to redirect every
+-- colliding timeline to its next available name, false to cancel the whole
+-- batch (closing the window also cancels).
+local function showCollisionDialog(ui, dispatcher, collisions)
+    local lines
+    if #collisions == 1 then
+        lines = {
+            string.format("%s already exists.", collisions[1].takenName),
+            "",
+            string.format("Next available name: %s", collisions[1].nextName),
+        }
+    else
+        lines = {
+            string.format("%d timeline names already exist.", #collisions),
+            "",
+            "Each will use its next available name.",
+        }
+    end
+
+    return utils.showStatusDialog(ui, dispatcher, {
+        icon = 'warning',
+        title = 'Timeline Already Exists',
+        message = table.concat(lines, "\n"),
+        closeValue = false,
+        buttons = {
+            { id = 'CancelBtn', text = 'Cancel', value = false, style = 'secondary' },
+            { id = 'UseNextBtn', text = 'Use Next Available Name', value = true, style = 'primary' },
+        },
+    })
+end
+
 -- Run one batch from the OK button handler; the main dialog stays visible
-local function runCreate(selectedResolution, resetVersion, removeDisabled)
+local function runCreate(selectedResolution, autoDetect, resetVersion, removeDisabled)
+    local resolutionString = selectedResolution.width .. "x" .. selectedResolution.height
+
     -- Display selected settings
-    print("\nSelected Resolution: " .. selectedResolution.width .. "x" .. selectedResolution.height)
-    print("Reset Version: " .. (resetVersion and "V1" or "No"))
+    local resetLabel = "N/A"
+    if autoDetect then
+        resetLabel = resetVersion and "V1" or "Keep existing"
+    end
+    print("\nSelected Resolution: " .. resolutionString)
+    print("Auto-Detect Naming: " .. (autoDetect and "Yes" or "No"))
+    print("Reset Version: " .. resetLabel)
     print("Remove Disabled Clips: " .. (removeDisabled and "Yes" or "No"))
 
     -- Get selected timelines from Media Pool (check directly in handler)
@@ -529,6 +627,57 @@ local function runCreate(selectedResolution, resetVersion, removeDisabled)
 
     local timelineCount = #selectedTimelines
     print("\nFound " .. timelineCount .. " selected timeline(s)")
+
+    -- Compute all target names up front (no API mutations yet)
+    local operations = {}
+    for _, timelineInfo in ipairs(selectedTimelines) do
+        table.insert(operations,
+            buildOperation(timelineInfo, resolutionString, autoDetect, resetVersion))
+    end
+
+    -- Collision gate: Resolve refuses to create a timeline under a name that
+    -- already exists, so DuplicateTimeline would fail with no visible error.
+    -- Best-effort pre-flight; the duplicate-failed path below stays as the
+    -- backstop for races and other failures.
+    local takenNames, namesErr = utils.getTimelineNameSet(project)
+    if not takenNames then
+        utils.printError(namesErr or "Could not read timeline names")
+        return
+    end
+
+    local collisions = {}
+    for _, op in ipairs(operations) do
+        if takenNames[op.newName] then
+            local nextName, probeErr = findNextAvailableName(op.makeName, op.probeStart, takenNames)
+            if not nextName then
+                utils.printError(probeErr .. " for " .. op.name)
+                utils.showErrorDialog(ui, dispatcher, probeErr, SCRIPT_INFO.NAME)
+                return
+            end
+            op.takenName = op.newName
+            op.nextName = nextName
+            table.insert(collisions, op)
+        end
+        -- Claim both names so within-batch duplicates collide and probe past
+        takenNames[op.newName] = true
+        if op.nextName then
+            takenNames[op.nextName] = true
+        end
+    end
+
+    if #collisions > 0 then
+        for _, op in ipairs(collisions) do
+            utils.printStatus("WARN", string.format("%s already exists, next available is %s",
+                op.takenName, op.nextName))
+        end
+        if not showCollisionDialog(ui, dispatcher, collisions) then
+            utils.printWarning("Cancelled by user - no timelines were created")
+            return
+        end
+        for _, op in ipairs(collisions) do
+            op.newName = op.nextName
+        end
+    end
 
     utils.printSection("Processing Timelines")
 
@@ -548,17 +697,14 @@ local function runCreate(selectedResolution, resetVersion, removeDisabled)
         utils.printWarning("Could not create progress window, continuing without it")
     end
 
-    -- Process each selected timeline
-    for i, timelineInfo in ipairs(selectedTimelines) do
-        local timelineName = timelineInfo.name
-
+    -- Process each operation
+    for i, op in ipairs(operations) do
         -- Update progress window at start of iteration
         if progress then
-            local resStr = selectedResolution.width .. "x" .. selectedResolution.height
-            progress.update(i, timelineName, string.format('[%d/%d] Processing: %s -> %s\n', i, timelineCount, timelineName, resStr))
+            progress.update(i, op.name, string.format('[%d/%d] Processing: %s -> %s\n', i, timelineCount, op.name, op.newName))
         end
 
-        local success, procErr, clipsDeleted = processTimeline(project, timelineInfo, selectedResolution, resetVersion, removeDisabled)
+        local success, procErr, clipsDeleted = processTimeline(project, op, op.newName, selectedResolution, removeDisabled)
 
         if success then
             successCount = successCount + 1
@@ -566,23 +712,20 @@ local function runCreate(selectedResolution, resetVersion, removeDisabled)
 
             -- Update progress with success
             if progress then
-                local versionSuffix = resetVersion and "V1" or nil
-                local newName = utils.modifyTimelineName(timelineName,
-                    selectedResolution.width .. "x" .. selectedResolution.height, versionSuffix)
-                progress.update(i, newName, utils.statusLine("OK", string.format('Created: %s', newName)) .. '\n')
+                progress.update(i, op.newName, utils.statusLine("OK", string.format('Created: %s', op.newName)) .. '\n')
             end
         else
             failedCount = failedCount + 1
             local failReason = procErr or "could not duplicate the timeline or set its resolution"
             table.insert(failedTimelines, {
-                name = timelineInfo.name,
+                name = op.name,
                 error = failReason
             })
-            utils.printError("Failed to process '" .. timelineInfo.name .. "': " .. failReason)
+            utils.printError("Failed to process '" .. op.name .. "': " .. failReason)
 
             -- Update progress with failure
             if progress then
-                progress.update(i, timelineName, utils.statusLine("ERROR", failReason) .. '\n')
+                progress.update(i, op.name, utils.statusLine("ERROR", failReason) .. '\n')
             end
         end
     end
@@ -649,6 +792,11 @@ function dialog.On.VerticalCheck.Clicked(ev)
     rebuildCombo(itm.VerticalCheck.Checked, h, w)
 end
 
+function dialog.On.AutoDetectCheck.Clicked(ev)
+    -- Version handling only applies when the name is understood
+    itm.ResetVersionCheck.Enabled = itm.AutoDetectCheck.Checked
+end
+
 function dialog.On.OkButton.Clicked(ev)
     utils.runWithDialogBusy(dialog, function()
         local w, werr = validateDimension(itm.WidthField.Text, "Width")
@@ -657,8 +805,8 @@ function dialog.On.OkButton.Clicked(ev)
             utils.showErrorDialog(ui, dispatcher, werr or herr, "Invalid Resolution")
             return
         end
-        runCreate({width = w, height = h}, itm.ResetVersionCheck.Checked,
-            itm.RemoveDisabledCheck.Checked)
+        runCreate({width = w, height = h}, itm.AutoDetectCheck.Checked,
+            itm.ResetVersionCheck.Checked, itm.RemoveDisabledCheck.Checked)
     end)
 end
 

@@ -215,17 +215,35 @@ function Timeline.removeVersionSuffix(timelineName)
     return timelineName:gsub("_V%d+$", "")
 end
 
--- Modify timeline name: remove version and resolution, add new ones
+-- Parse trailing "_V<n>" / "_<W>x<H>" tokens off the END of a name, in any
+-- order, at most one of each (stops at a repeat). Identical-looking tokens
+-- mid-name belong to the base and stay. Version keeps its case and zero
+-- padding ("v03" stays "v03").
+-- Returns: {base = string, version = string|nil, resolution = string|nil}
+function Timeline.parseTimelineName(name)
+    local base, version, resolution = name, nil, nil
+    while true do
+        local v = base:match("_([Vv]%d+)$")
+        if v and not version then
+            version = v
+            base = base:sub(1, #base - #v - 1)
+        else
+            local r = base:match("_(%d+x%d+)$")
+            if r and not resolution then
+                resolution = r
+                base = base:sub(1, #base - #r - 1)
+            else
+                break
+            end
+        end
+    end
+    return {base = base, version = version, resolution = resolution}
+end
+
+-- Modify timeline name: strip the trailing version/resolution cluster
+-- (parseTimelineName), then append the new resolution and version
 function Timeline.modifyTimelineName(originalName, newResolution, newVersion)
-    local cleanName = originalName
-
-    -- Remove all version suffixes (e.g., _V1, _V2, _V3)
-    cleanName = cleanName:gsub("_V%d+", "")
-
-    -- Remove all resolution suffixes (e.g., _1080x1920, _3840x2160)
-    cleanName = cleanName:gsub("_%d+x%d+", "")
-
-    local newName = cleanName
+    local newName = Timeline.parseTimelineName(originalName).base
 
     if newResolution then
         newName = newName .. "_" .. newResolution
