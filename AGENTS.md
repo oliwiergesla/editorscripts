@@ -342,8 +342,11 @@ Markers/flags and clip colors use two **different** 16-color palettes — never 
 5. `mediaPool:AppendToTimeline({{mediaPoolItem=srtItem, startFrame=..., recordFrame=...}})` to place
 6. `mediaPool:DeleteClips({srtItem})` to cleanup media pool
 
-### ImportRenderPreset
-`resolve:ImportRenderPreset(xmlFilePath)` imports a render preset from XML. Can write XML to a temp file and import programmatically.
+### Render Preset XML Round-Trip
+`resolve:ImportRenderPreset(xmlFilePath)` imports a preset from XML (can write XML to a temp file and import programmatically); `resolve:ExportRenderPreset(presetName, folder)` exports one, writing `<PresetName>.xml` into the given FOLDER. There is no `GetRenderSettings()` — exporting and parsing the XML's `ExtraInfoMap` (`h264_datarate`, `h264_passes`, `aud_rate`) is the only way to read a preset's encode values.
+
+### Render Settings Are Sticky Across Jobs
+`SetRenderSettings` MERGES onto the project's current render settings: any key you don't pass keeps its last-set value for the next `AddRenderJob`, and `LoadRenderPreset` does NOT clear previously overridden keys — a batch mixing per-job overrides (`VideoQuality`, `MultiPassEncode`) must restate them on every job or they leak into later jobs. `EncodeBitrate` is not a supported key (use `VideoQuality`).
 
 ### ImportTimelineFromFile Options
 `mediaPool:ImportTimelineFromFile(xmlPath, {timelineName = "name"})` accepts an options table.
