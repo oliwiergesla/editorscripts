@@ -152,18 +152,27 @@ function Core.getResolveVersion(resolve)
     return nil, "Resolve version could not be detected"
 end
 
--- Check that the running Resolve meets a minimum version pin ("20.0", "19.1").
--- Falls back to Core.DEFAULT_MIN_RESOLVE when minVersion is nil or malformed.
--- Only major.minor are compared; patch/build/beta suffix are ignored.
+-- Check the running Resolve against a minimum version pin ("20.0", "21.0.4"),
+-- falling back to Core.DEFAULT_MIN_RESOLVE when minVersion is nil or malformed.
+-- Compares major.minor.patch (patch matters: Resolve ships APIs in patch
+-- releases); omitted components default to 0, build/beta suffix ignored.
+--
 -- Returns: true, nil when sufficient, or nil, errorMessage
 function Core.checkResolveVersion(resolve, minVersion)
-    local minMajor, minMinor = tostring(minVersion or ""):match("^(%d+)%.?(%d*)")
+    local minMajor, minMinor, minPatch = tostring(minVersion or ""):match("^(%d+)%.?(%d*)%.?(%d*)")
     if not minMajor then
-        minMajor, minMinor = Core.DEFAULT_MIN_RESOLVE:match("^(%d+)%.?(%d*)")
+        minMajor, minMinor, minPatch = Core.DEFAULT_MIN_RESOLVE:match("^(%d+)%.?(%d*)%.?(%d*)")
     end
+    -- Label the pin the way it was written: a two-part pin must still read
+    -- "20.0", not "20.0.0".
+    local pinHadPatch = (minPatch ~= nil and minPatch ~= "")
     minMajor = tonumber(minMajor)
     minMinor = tonumber(minMinor) or 0
+    minPatch = tonumber(minPatch) or 0
     local minLabel = minMajor .. "." .. minMinor
+    if pinHadPatch then
+        minLabel = minLabel .. "." .. minPatch
+    end
 
     local v = Core.getResolveVersion(resolve)
     if not v then
@@ -172,12 +181,14 @@ function Core.checkResolveVersion(resolve, minVersion)
             "indicates a much older version."
     end
 
-    if v.major > minMajor or (v.major == minMajor and v.minor >= minMinor) then
+    if v.major > minMajor
+        or (v.major == minMajor and v.minor > minMinor)
+        or (v.major == minMajor and v.minor == minMinor and v.patch >= minPatch) then
         return true, nil
     end
 
     return nil, "This script requires DaVinci Resolve " .. minLabel ..
-        " or newer (detected " .. v.major .. "." .. v.minor .. ")."
+        " or newer (detected " .. v.major .. "." .. v.minor .. "." .. v.patch .. ")."
 end
 
 -- True when err came from checkResolveVersion. Lets the facade title the
