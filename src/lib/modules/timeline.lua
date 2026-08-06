@@ -19,45 +19,157 @@ local Timeline = {}
 -- TIMELINE FUNCTIONS
 -- ============================================================================
 
+-- Session-memoized probe for MediaPoolItem:GetTimeline(). Caches a property of
+-- the RUNNING RESOLVE BUILD, not any timeline lookup (those never outlive one
+-- operation - see Timeline.getTimelineLookup).
+local getTimelineSupported = nil
+
+-- Resolve a Media Pool item to its Timeline object.
+-- Returns a closure: lookup(clipItem) -> timeline or nil (nil = not a timeline).
+--
+-- Resolve 21.0.4+ uses MediaPoolItem:GetTimeline() (O(1), ~0.08 ms); older
+-- builds scan project timelines matching MediaPoolItem UniqueIds (~0.29 ms per
+-- timeline in the project). Probed, not pinned: GetTimeline() shipped in a PATCH
+-- release, so a "21.0.4" MIN_RESOLVE would hard-block every Resolve 20 user for
+-- a speedup.
+--
+-- LIFETIME: valid for ONE operation (one getSelectedTimelines call, one preview
+-- refresh), then discard. The legacy path memoizes what it scans, so a lookup
+-- held across UI events hands back timelines since renamed or deleted.
+--
+-- sampleItem (optional): any MediaPoolItem to probe with; passing one saves a
+-- Media Pool walk. forceLegacy (optional): test-only, exercises the legacy
+-- branch on a 21.0.4+ machine.
+--
+-- PHASE-OUT: Possibly once Resolve 22 comes out, maybe sooner.
+function Timeline.getTimelineLookup(project, forceLegacy, sampleItem)
+    if not project then
+        return nil, "Project not available"
+    end
+
+    if not forceLegacy then
+        if getTimelineSupported == nil then
+            -- Resolve's binding returns nil for methods a build lacks, so
+            -- type() settles it without calling anything.
+            local sample = sampleItem
+            if not sample then
+                -- No sample given: find any clip, subfolders included - the
+                -- root folder is often empty in bin-organised projects.
+                local mediaPool = project:GetMediaPool()
+                local rootFolder = mediaPool and mediaPool:GetRootFolder()
+                if rootFolder then
+                    local function firstClip(folder, depth)
+                        if not folder or depth > 4 then return nil end
+                        local clips = folder:GetClipList()
+                        if clips and clips[1] then return clips[1] end
+                        for _, sub in ipairs(folder:GetSubFolderList() or {}) do
+                            local found = firstClip(sub, depth + 1)
+                            if found then return found end
+                        end
+                        return nil
+                    end
+                    sample = firstClip(rootFolder, 1)
+                end
+            end
+
+            if sample then
+                getTimelineSupported = (type(sample.GetTimeline) == "function")
+            end
+        end
+
+        if getTimelineSupported then
+            -- Resolve 21.0.4+ fast path
+            return function(clipItem)
+                if not clipItem then return nil end
+                return clipItem:GetTimeline()
+            end, nil
+        end
+    end
+
+    -- LEGACY (Resolve 20.0 - 21.0.3): scan project timelines, matching by
+    -- MediaPoolItem UniqueId rather than name - duplicating a bin in Resolve's
+    -- GUI produces duplicate timeline names. The scan resumes where the last
+    -- lookup stopped and caches what it passes, so M lookups scan at most N
+    -- timelines total (restarting from index 1 each time would be O(N*M)).
+    local cache = {}
+    local nextIndex = 1
+    local timelineCount = project:GetTimelineCount()
+
+    return function(clipItem)
+        if not clipItem then return nil end
+
+        local clipUniqueId = clipItem:GetUniqueId()
+        if not clipUniqueId then return nil end
+
+        local cached = cache[clipUniqueId]
+        if cached then
+            return cached
+        end
+
+        while nextIndex <= timelineCount do
+            local tl = project:GetTimelineByIndex(nextIndex)
+            nextIndex = nextIndex + 1
+
+            if tl then
+                local mpItem = tl:GetMediaPoolItem()
+                if mpItem then
+                    local uniqueId = mpItem:GetUniqueId()
+                    if uniqueId then
+                        cache[uniqueId] = tl
+                        if uniqueId == clipUniqueId then
+                            return tl
+                        end
+                    end
+                end
+            end
+        end
+
+        return nil
+    end, nil
+end
+
 -- Get all selected timeline items from the Media Pool
 -- Returns: array of {name = string, timeline = timeline object, clipItem = clip object}, error message
-function Timeline.getSelectedTimelines(project, mediaPool)
+function Timeline.getSelectedTimelines(project, mediaPool, forceLegacy)
 
-    -- Get selected clips from Media Pool
     local selectedClips = mediaPool:GetSelectedClips()
 
     if not selectedClips or #selectedClips == 0 then
         return nil, "No items selected in Media Pool"
     end
 
-    -- Build lookup table: UniqueId -> Timeline (O(m) once, then O(1) lookups)
-    -- This avoids O(n*m) iteration when multiple timelines are selected.
-    local timelinesByUniqueId = {}
-    local timelineCount = project:GetTimelineCount()
-    for i = 1, timelineCount do
-        local tl = project:GetTimelineByIndex(i)
-        if tl then
-            local mpItem = tl:GetMediaPoolItem()
-            if mpItem then
-                timelinesByUniqueId[mpItem:GetUniqueId()] = tl
-            end
-        end
+    local lookupTimeline, lookupErr =
+        Timeline.getTimelineLookup(project, forceLegacy, selectedClips[1])
+    if not lookupTimeline then
+        return nil, lookupErr
     end
+
+    -- The fast-path lookup answers "is this a timeline?" itself; only the legacy
+    -- path needs the extra GetClipProperty("Type") read.
+    local usingFastPath = (getTimelineSupported == true) and not forceLegacy
 
     -- Filter for timeline items only
     local timelines = {}
     local skippedCount = 0
 
     for _, clip in ipairs(selectedClips) do
-        local clipType = clip:GetClipProperty("Type")
+        local timelineObject, isTimelineItem
 
-        if clipType == "Timeline" then
+        if usingFastPath then
+            -- nil is authoritative here: the item is not a timeline.
+            timelineObject = lookupTimeline(clip)
+            isTimelineItem = (timelineObject ~= nil)
+        else
+            -- LEGACY: nil is ambiguous (not a timeline, or one the scan missed),
+            -- so classify first to keep the warning below meaningful.
+            isTimelineItem = (clip:GetClipProperty("Type") == "Timeline")
+            if isTimelineItem then
+                timelineObject = lookupTimeline(clip)
+            end
+        end
+
+        if isTimelineItem then
             local timelineName = clip:GetName()
-            local clipUniqueId = clip:GetUniqueId()
-
-            -- Direct O(1) lookup by UniqueId handles duplicate timeline names
-            -- (which can occur when duplicating bins in Resolve's GUI)
-            local timelineObject = timelinesByUniqueId[clipUniqueId]
 
             if timelineObject then
                 table.insert(timelines, {

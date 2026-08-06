@@ -1,6 +1,6 @@
 local SCRIPT_INFO = {
     NAME = "Renamer",
-    VERSION = "1.0.3",
+    VERSION = "1.0.4",
     MIN_RESOLVE = "20.0",
 }
 -- SPDX-License-Identifier: GPL-3.0-only
@@ -195,32 +195,15 @@ local function parseDateCreated(raw)
     return nil
 end
 
--- Build a uniqueId -> Timeline lookup for matching media pool items to timelines
-local function buildTimelineLookup(project)
-    local timelinesByUniqueId = {}
-    local timelineCount = project:GetTimelineCount()
-    for i = 1, timelineCount do
-        local timeline = project:GetTimelineByIndex(i)
-        if timeline then
-            local mpItem = timeline:GetMediaPoolItem()
-            if mpItem then
-                local uniqueId = mpItem:GetUniqueId()
-                if uniqueId then
-                    timelinesByUniqueId[uniqueId] = timeline
-                end
-            end
-        end
-    end
-    return timelinesByUniqueId
-end
-
 -- Record table for a selected timeline item
+-- lookupTimeline: a lookup from utils.getTimelineLookup, valid for this
+--   operation only (see its docs - never hold one across UI events)
 -- props: the item's full property dict from clip:GetClipProperty()
-local function makeTimelineRecord(clip, timelineLookup, props)
+local function makeTimelineRecord(clip, lookupTimeline, props)
     return {
         name = clip:GetName(),
         clipItem = clip,
-        timeline = timelineLookup[clip:GetUniqueId()],
+        timeline = lookupTimeline(clip),
         dateCreated = parseDateCreated(props["Date Created"]),
         type = "Timeline"
     }
@@ -251,7 +234,7 @@ local function splitSelectedItems(project, mediaPool)
         return nil, nil, "No items selected in the Media Pool"
     end
 
-    local timelineLookup = buildTimelineLookup(project)
+    local lookupTimeline = utils.getTimelineLookup(project, nil, selectedClips[1])
 
     local timelines = {}
     local clips = {}
@@ -259,7 +242,7 @@ local function splitSelectedItems(project, mediaPool)
     for _, clip in ipairs(selectedClips) do
         local props = clip:GetClipProperty() or {}
         if props["Type"] == "Timeline" then
-            table.insert(timelines, makeTimelineRecord(clip, timelineLookup, props))
+            table.insert(timelines, makeTimelineRecord(clip, lookupTimeline, props))
         else
             table.insert(clips, makeClipRecord(clip, props))
         end
@@ -962,7 +945,13 @@ local function main()
             return nil, 0
         end
 
-        local timelineLookup = (currentMode == "Timelines") and buildTimelineLookup(project) or nil
+        -- Built fresh on every refresh, never held across keystrokes: the
+        -- preview must reflect the CURRENT selection, so that a new batch
+        -- selection (or a timeline created while this dialog is open) resolves
+        -- correctly. On Resolve 21.0.4+ doesnt cost anything - GetTimeline() is a
+        -- direct lookup with no project scan to repeat.
+        local lookupTimeline = (currentMode == "Timelines")
+            and utils.getTimelineLookup(project, nil, selectedClips[1]) or nil
 
         -- Find first matching item and count all matching items
         local firstItem = nil
@@ -976,7 +965,7 @@ local function main()
             if currentMode == "Timelines" and clipType == "Timeline" then
                 matchCount = matchCount + 1
                 if not firstItem then
-                    firstItem = makeTimelineRecord(clip, timelineLookup, clip:GetClipProperty() or {})
+                    firstItem = makeTimelineRecord(clip, lookupTimeline, clip:GetClipProperty() or {})
                 end
             elseif currentMode == "Clips" and clipType ~= "Timeline" then
                 matchCount = matchCount + 1

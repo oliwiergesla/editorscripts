@@ -150,6 +150,7 @@ ResolveKit.KEY_CODES = Core.KEY_CODES
 
 -- Timeline Functions
 ResolveKit.getSelectedTimelines = Timeline.getSelectedTimelines
+ResolveKit.getTimelineLookup = Timeline.getTimelineLookup
 ResolveKit.getTimelineDuration = Timeline.getTimelineDuration
 ResolveKit.setCurrentTimeline = Timeline.setCurrentTimeline
 ResolveKit.getTimelineResolution = Timeline.getTimelineResolution

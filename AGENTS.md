@@ -90,7 +90,7 @@ end
 -- Extract ctx.resolve, ctx.project, ctx.mediaPool, ctx.ui, ctx.dispatcher
 ```
 
-**SCRIPT_INFO** must be the first line of every script with `NAME`, `VERSION`, and `MIN_RESOLVE` only. New scripts always start at `VERSION = "0.1.0"`. `MIN_RESOLVE` is the minimum Resolve version the script's API calls require ("major.minor" string), enforced at launch: pass the whole `SCRIPT_INFO` table as the last argument to `initialize()`/`initializeWithUI()` (a bare pin string also works; omitting it falls back to `Core.DEFAULT_MIN_RESOLVE`). New scripts start at the current support floor (`"20.0"`) and raise the pin when adopting an API introduced in a newer Resolve. On any init failure, `initializeWithUI` also shows an on-screen error dialog titled with `SCRIPT_INFO.NAME` (console-only `initialize()` deliberately stays silent for headless/StreamDeck flows) — scripts still `printError(err)` and return as usual.
+**SCRIPT_INFO** must be the first line of every script with `NAME`, `VERSION`, and `MIN_RESOLVE` only. New scripts always start at `VERSION = "0.1.0"`. `MIN_RESOLVE` is the minimum Resolve version the script's API calls require ("major.minor" string), enforced at launch: pass the whole `SCRIPT_INFO` table as the last argument to `initialize()`/`initializeWithUI()` (a bare pin string also works; omitting it falls back to `Core.DEFAULT_MIN_RESOLVE`). New scripts start at the current support floor (`"20.0"`) and raise the pin when adopting an API introduced in a newer Resolve. Raising the pin is a **hard block** — every user below it loses the script entirely. For an *optional* improvement (a faster path, a nicer affordance) prefer runtime feature detection and keep the pin where it is; see `Timeline.getTimelineLookup` in `timeline.lua` for the pattern, and `stepLoopSupported` in `ui.lua` for the memoized-probe precedent. Reserve a pin raise for APIs the script genuinely cannot work without. On any init failure, `initializeWithUI` also shows an on-screen error dialog titled with `SCRIPT_INFO.NAME` (console-only `initialize()` deliberately stays silent for headless/StreamDeck flows) — scripts still `printError(err)` and return as usual.
 
 **Window titles** must always use `SCRIPT_INFO.NAME`. **Console headers** (`printHeader`) must always use `SCRIPT_INFO.NAME .. " v" .. SCRIPT_INFO.VERSION`.
 
@@ -118,11 +118,16 @@ Resolve()
         → GetCurrentTimeline() → timeline
         → GetTimelineCount(), GetTimelineByIndex(i)
     → Fusion() → fusion  -- Required for UI dialogs only
+
+mediaPoolItem → GetTimeline() → timeline   -- Resolve 21.0.4+; nil if not a timeline
+timeline      → GetMediaPoolItem() → mediaPoolItem   -- the reverse direction
 ```
 
 ### Media Pool Selection
 
 Most batch scripts use `utils.getSelectedTimelines(project, mediaPool)` which returns a list of `{timeline, name, clipItem}` tables. See `timeline.lua` for the full API.
+
+**Never resolve a Media Pool item to its Timeline by enumerating `GetTimelineByIndex`.** Use `utils.getSelectedTimelines`, or `utils.getTimelineLookup(project, forceLegacy, sampleItem)` when you need the mapping outside the selection flow. On Resolve 21.0.4+ it returns a direct `MediaPoolItem:GetTimeline()` call with no project scan; below that it falls back to an incremental UniqueId scan. Enumerating by hand costs ~0.29 ms per timeline in the project on *every* lookup (measured August 2026, macOS) and pointlessly re-pays that on installs that no longer need it. A lookup is valid for **one operation only** — never hold one across UI events or for a dialog's lifetime, or the legacy path will hand back timelines that have since been renamed or deleted.
 
 ### UI Rules (Fusion UIManager)
 
@@ -172,7 +177,7 @@ Always collect items then process in a single API call. Never call `timeline:Del
 Single mutating calls (`AddMarker`, `DeleteMarkerAtFrame`, per-item `DeleteClips`, changed-value `SetSetting`, `SetName`) block until Resolve's next UI refresh: ~16.6 ms median on a 60 Hz display, while the same calls' minimums are sub-ms — the wait is the tick, not the work. Per-item loops therefore cap at ~60 ops/sec; batch APIs pay the tick once (batch `DeleteClips` ~0.1 ms/item; `DeleteMarkersByColor("All")` clears any count in ~1 ms). This is the *why* behind the Batch API Calls rule. Measured July 2026 (macOS, Resolve 21, local project).
 
 ### Caching for Lookups
-Build hash tables for O(1) access instead of repeated iteration. See existing patterns in `timeline.lua`.
+Build hash tables for O(1) access instead of repeated iteration — see `renamer.lua`'s `clipsByUniqueId` undo map. Scope the cache to one operation unless the keys are provably stable; caches held across UI events go stale when the user edits the project underneath them.
 
 ### Full-Dict Property Reads
 `clip:GetClipProperty()` with no argument returns the full property dict (~260 keys) in one call; `GetMetadata()` and `GetSetting()` have the same no-arg form. Measured July 2026 (macOS, local project): a single-key read is ~0.08–0.15 ms, the full dict ~0.45 ms — **break-even at ~3 keys**. Reading **3+ properties from the same clip: take one no-arg snapshot and index it** (keys match the per-key names); at 1–2 properties keep per-key reads — they're faster. Exception: `GetMetadata()`'s no-arg dict costs the same as one single-key read (~0.1 ms) — snapshot at 2+ metadata keys, always. Keep the same `or ""` / nil fallbacks on dict lookups that a per-key read would need, and guard the snapshot itself (`GetClipProperty() or {}`).
