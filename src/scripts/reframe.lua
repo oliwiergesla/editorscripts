@@ -1,6 +1,6 @@
 local SCRIPT_INFO = {
     NAME = "Reframe",
-    VERSION = "1.1.0",
+    VERSION = "1.1.1",
     MIN_RESOLVE = "20.0",
 }
 
