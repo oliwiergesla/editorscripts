@@ -721,8 +721,12 @@ end
 --   mediaPool: MediaPool object
 --   oldClipInfo: Clip info table from findClipsByNames (must have: item, track, startFrame, duration)
 --   newMediaPoolItem: The new media pool item to insert
+--   mediaType: Optional AppendToTimeline mediaType (1 = video only, 2 = audio only);
+--              nil appends every stream the item carries. Pass 1 when replacing a
+--              video-only slot with a timeline or a clip that has audio, otherwise
+--              its audio is dropped onto the audio tracks as well.
 -- Returns: success (boolean), error message
-function Timeline.replaceClip(project, timeline, mediaPool, oldClipInfo, newMediaPoolItem)
+function Timeline.replaceClip(project, timeline, mediaPool, oldClipInfo, newMediaPoolItem, mediaType)
     if not project or not timeline or not mediaPool or not oldClipInfo or not newMediaPoolItem then
         return false, "Missing required parameters"
     end
@@ -751,7 +755,8 @@ function Timeline.replaceClip(project, timeline, mediaPool, oldClipInfo, newMedi
         trackIndex = oldClipInfo.track,
         recordFrame = oldClipInfo.startFrame,
         startFrame = 0,
-        endFrame = clipDuration
+        endFrame = clipDuration,
+        mediaType = mediaType
     }
 
     -- Add the new clip at the same position
