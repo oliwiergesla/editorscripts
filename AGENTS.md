@@ -10,7 +10,7 @@ This is a collection of Lua scripts for DaVinci Resolve 20 that automate timelin
 
 ### Official API Documentation (shipped with Resolve — authoritative, always current)
 Every Resolve install ships the current API docs locally; prefer these over any website for API questions:
-- **macOS:** `/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/README.txt` (full API reference) and `CHANGELOG.txt` (API changes per Resolve version — useful for `MIN_RESOLVE` pins)
+- **macOS:** `/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/` — `DaVinciResolveScript.pyi` (the full function reference; Python type stubs, but the same API Lua calls), `README.md` (concepts, settings/property keys, deprecated functions and calling conventions) and `CHANGELOG.md` (API changes per Resolve version — useful for `MIN_RESOLVE` pins). Since Resolve 21.1 the README no longer lists functions, and the changelog omits some additions — the `.pyi` is the only complete list. Installs older than 21.1 ship `README.txt` / `CHANGELOG.txt` instead, with the function list inside the README.
 - **Windows:** `%PROGRAMDATA%\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting\` (same files)
 - A local gitignored snapshot of these files may exist outside this repo — convenient to read, but always check its `Last Updated:` line (row 1) against the shipped README before trusting it. A stale snapshot silently hides newly added APIs, so prefer the shipped files above whenever the dates differ.
 - Official example scripts live in `Examples/` next to the README — occasionally useful for API usage the docs describe tersely (their code style predates this repo's conventions; don't pattern-match from them).
