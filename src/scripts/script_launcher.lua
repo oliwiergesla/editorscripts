@@ -25,6 +25,9 @@ local SCRIPT_INFO = {
           between folders; the launcher path itself is per-user (Resolve
           maps Scripts:/ to ~/Library on macOS), so a new machine or
           account needs this window opened once and commands re-copied
+        - Anything typed after the slug is forwarded to the launched
+          script as its own command-line arguments (for scripts that
+          have a headless mode)
         - On Windows, Stream Deck's Open action cannot pass arguments, so
           Copy Command writes a per-slug .vbs with the slug baked in and
           copies just that file's path
@@ -201,9 +204,14 @@ local function buildMacPlatform(scriptPath)
         -- LUA_PATH is inherited from the launcher's export above. Returns
         -- true when the spawn command succeeded. Unlike Windows, POSIX does
         -- not lock the target log, so second instances DO launch here.
-        spawnDetached = function(targetPath)
-            local code = os.execute(string.format('nohup "%s" "%s" > "%s" 2>&1 &',
-                FUSCRIPT_MAC, targetPath, targetLogPath))
+        -- targetArgs (optional array) land in the target's arg table.
+        spawnDetached = function(targetPath, targetArgs)
+            local quoted = {}
+            for _, value in ipairs(targetArgs or {}) do
+                quoted[#quoted + 1] = " " .. utils.shellQuote(value)
+            end
+            local code = os.execute(string.format('nohup "%s" "%s"%s > "%s" 2>&1 &',
+                FUSCRIPT_MAC, targetPath, table.concat(quoted), targetLogPath))
             return execSucceeded(code)
         end,
         -- Run the installed launcher exactly as a Stream Deck press would
@@ -235,9 +243,15 @@ local function buildWindowsPlatform(scriptPath, fuscriptPath)
         -- still open it holds the log, this spawn's redirect fails, and
         -- the target does not start. Returns true when the spawn command
         -- succeeded so the caller can say so instead of failing silently.
-        spawnDetached = function(targetPath)
-            local code = os.execute(string.format('start "" /b "%s" "%s" > "%s" 2>&1',
-                fuscriptPath, targetPath, targetLogPath))
+        -- targetArgs (optional array) land in the target's arg table;
+        -- embedded double quotes are dropped since cmd can't escape them.
+        spawnDetached = function(targetPath, targetArgs)
+            local quoted = {}
+            for _, value in ipairs(targetArgs or {}) do
+                quoted[#quoted + 1] = ' "' .. tostring(value):gsub('"', "") .. '"'
+            end
+            local code = os.execute(string.format('start "" /b "%s" "%s"%s > "%s" 2>&1',
+                fuscriptPath, targetPath, table.concat(quoted), targetLogPath))
             return execSucceeded(code)
         end,
         runLauncher = function(launcherPath, slug)
@@ -544,10 +558,13 @@ end
 
 local USAGE = [[
 Usage:
-  script-launcher.sh <script-slug>
+  script-launcher.sh <script-slug> [arguments...]
 
 The slug names a script installed in the Fusion Scripts folder, e.g.
   script-launcher.sh markers-to-stills
+
+Anything after the slug is passed through to the launched script, for
+scripts that accept command-line arguments of their own.
 
 The slug is resolved against the Scripts folder at press time, so commands
 keep working after reinstalls and after scripts move between folders. The
@@ -575,10 +592,13 @@ local function runCliMain(argv)
     print(string.format("[%s] %s", os.date("%Y-%m-%d %H:%M:%S"), SCRIPT_INFO.NAME))
     print("Requested script: " .. slug)
 
-    if argv[2] ~= nil then
-        cliFail("Expected a single script slug, got extra arguments.")
-        printUsage()
-        return
+    -- Everything after the slug belongs to the target script
+    local targetArgs = {}
+    for i = 2, #argv do
+        targetArgs[#targetArgs + 1] = argv[i]
+    end
+    if #targetArgs > 0 then
+        print("Arguments: " .. table.concat(targetArgs, " "))
     end
 
     -- pcall: with Resolve closed the Resolve() global may not exist at all.
@@ -628,8 +648,9 @@ local function runCliMain(argv)
     print("Target output: " .. PLATFORM.targetLogPath)
     -- A fresh fuscript process, never dofile() in-process: this resolver's
     -- arg table would leak into targets that have their own CLI modes
-    -- (node_toggle, this script itself)
-    if not PLATFORM.spawnDetached(target.path) then
+    -- (node_toggle, this script itself) - only the arguments after the
+    -- slug are forwarded
+    if not PLATFORM.spawnDetached(target.path, targetArgs) then
         -- On Windows the running target holds the target log exclusively,
         -- which acts as a single-instance latch (see spawnDetached)
         cliFail(string.format(
