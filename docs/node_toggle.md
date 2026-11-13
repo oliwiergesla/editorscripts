@@ -72,7 +72,7 @@ Repeat steps 2 and 3 for as many buttons as you like.
 
 - **Failed presses explain themselves.** An alert says why (Resolve closed, no timeline open, node not found), and the details are saved to a log file (see [Advanced](#advanced)).
 
-- **The script keeps track of on/off itself.** Resolve doesn't tell scripts whether a node is currently enabled, so Node Toggle remembers the state on its own and assumes *enabled* on first use. Toggling the node manually in Resolve's UI puts that memory out of step; one extra button press brings it back in sync.
+- **Node state.** On Resolve 21.2 and later, Node Toggle reads whether the node is on straight from Resolve. On older versions it remembers the state in a file instead, so toggling the node by hand can put it out of step; one extra button press fixes that.
 
 - **It can't target the selected node or a node color.** Resolve doesn't share the current node selection or node colors with scripts, so the node must be identified by name or index.
 

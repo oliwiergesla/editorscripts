@@ -1,6 +1,6 @@
 local SCRIPT_INFO = {
     NAME = "Node Toggle",
-    VERSION = "1.0.4",
+    VERSION = "1.1.0",
     MIN_RESOLVE = "20.0",
 }
 -- SPDX-License-Identifier: GPL-3.0-only
@@ -26,8 +26,10 @@ local SCRIPT_INFO = {
           copies just that file's path
         - CLI mode failures pop a native alert (even with Resolve closed)
           and are logged to .data/node_toggle.log
-        - On/off state is tracked in .data/node_toggle_state.json (the API
-          has no GetNodeEnabled); nodes are assumed enabled on first use
+        - On Resolve 21.2+ each press toggles from the node's real state
+          (Graph:GetNodeEnabled). Older versions cannot read it, so on/off
+          is tracked in .data/node_toggle_state.json and nodes are assumed
+          enabled on first use
 
     Usage:
         1. Run from Workspace > Scripts with Resolve open to launch the
@@ -265,8 +267,10 @@ do
 end
 
 -- ============================================================================
--- STATE PERSISTENCE
--- The Resolve API cannot read a node's enabled state, so toggles are tracked
+-- STATE PERSISTENCE (fallback below Resolve 21.2)
+-- Where Graph:GetNodeEnabled exists the state is read from Resolve and this
+-- file is neither read nor written (see readNodeEnabled / toggleNode).
+-- Older versions cannot read a node's enabled state, so toggles are tracked
 -- in a JSON file of stateKey -> boolean. Missing key = assumed enabled.
 -- Toggling a node manually in Resolve's UI can drift the tracked state;
 -- one extra button press resyncs it.
@@ -551,6 +555,23 @@ local function stateKey(positions, scopeIds, parsed)
     return table.concat(positions, ",") .. "|" .. table.concat(scopeIds, ",") .. "|" .. lookupTag
 end
 
+-- Read a node's real enabled state. Returns true/false when Resolve reports
+-- it, nil when it cannot (Graph:GetNodeEnabled is Resolve 21.2+; the binding
+-- returns nil for methods a build lacks, so type() settles it without a call).
+-- Probed, not pinned: the state file below covers older versions.
+local function readNodeEnabled(graph, nodeIndex)
+    if type(graph.GetNodeEnabled) ~= "function" then
+        return nil
+    end
+    -- Capture into a local first: an out-of-range index returns NO value,
+    -- which errors if the call is passed straight into another function
+    local enabled = graph:GetNodeEnabled(nodeIndex)
+    if type(enabled) ~= "boolean" then
+        return nil
+    end
+    return enabled
+end
+
 -- The Edit/Cut page viewer caches rendered output and doesn't pick up
 -- scripted color changes; bouncing the clip-enabled flag forces a recompute.
 -- The Color page has a live connection to the grade engine and needs nothing.
@@ -596,29 +617,52 @@ local function toggleNode(resolve, project, timeline, parsed)
         return nil, "Node not found in any requested position:\n" .. table.concat(lines, "\n")
     end
 
-    -- Key on the positions actually toggled so a single-position command's
-    -- state survives the node moving graphs (and matches pre-'all' keys)
-    local key = stateKey(foundPositions, scopeIds, parsed)
-    local states = readStates()
-    local currentEnabled = states[key]
-    if currentEnabled == nil then currentEnabled = true end  -- assume enabled on first use
+    -- Live state (Resolve 21.2+): used only when every target reports one,
+    -- so a command never mixes real reads with tracked guesses
+    local liveState = true
+    for _, target in ipairs(targets) do
+        target.wasEnabled = readNodeEnabled(target.graph, target.nodeIndex)
+        if target.wasEnabled == nil then
+            liveState = false
+        end
+    end
+
+    local currentEnabled, states, key
+    if liveState then
+        -- The first requested position leads; targets in a different state
+        -- converge on this press, keeping "all targets flip together"
+        currentEnabled = targets[1].wasEnabled
+    else
+        -- Key on the positions actually toggled so a single-position command's
+        -- state survives the node moving graphs (and matches pre-'all' keys)
+        key = stateKey(foundPositions, scopeIds, parsed)
+        states = readStates()
+        currentEnabled = states[key]
+        if currentEnabled == nil then currentEnabled = true end  -- assume enabled on first use
+    end
 
     local newState = not currentEnabled
     for i, target in ipairs(targets) do
-        if not target.graph:SetNodeEnabled(target.nodeIndex, newState) then
+        -- A target already in the new state needs no call (each one costs a UI tick)
+        local alreadySet = liveState and target.wasEnabled == newState
+        if not alreadySet and not target.graph:SetNodeEnabled(target.nodeIndex, newState) then
             -- Roll back the targets already flipped so the graphs stay in sync
             for j = 1, i - 1 do
-                targets[j].graph:SetNodeEnabled(targets[j].nodeIndex, currentEnabled)
+                local previous = targets[j].wasEnabled
+                if previous == nil then previous = currentEnabled end
+                targets[j].graph:SetNodeEnabled(targets[j].nodeIndex, previous)
             end
             return nil, string.format("Failed to toggle node %d in the %s graph.",
                 target.nodeIndex, target.position)
         end
     end
 
-    states[key] = newState
-    local written, writeErr = writeStates(states)
-    if not written then
-        utils.printWarning(writeErr)
+    if not liveState then
+        states[key] = newState
+        local written, writeErr = writeStates(states)
+        if not written then
+            utils.printWarning(writeErr)
+        end
     end
 
     local currentPage = resolve:GetCurrentPage()
