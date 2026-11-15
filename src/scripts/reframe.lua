@@ -132,9 +132,6 @@ local CONFIG = {
 --   entries[i] (0-based combo index) -> preset table | SEP | CUSTOM
 --   count        total combo item count (including separator slots)
 --   customIndex  combo index of the "Custom" entry
--- InsertSeparator is documented but unproven in this binding, so it is
--- feature-detected per call: a separator only gets an index slot in the map
--- if combo:Count() actually grew. Without support the list is simply flat.
 local function populateResolutionCombo(combo, presets)
     combo:Clear()
     local model = {entries = {}, count = 0, customIndex = nil}
