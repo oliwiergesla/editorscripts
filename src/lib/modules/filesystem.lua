@@ -734,6 +734,69 @@ function FileSystem.getDataDir()
     return FileSystem.joinPath(scriptDir, ".data"), nil
 end
 
+-- Standard base64 alphabet: byte -> 6-bit value ("=" padding has no entry)
+local BASE64_VALUES = {}
+do
+    local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    for i = 1, #alphabet do
+        BASE64_VALUES[alphabet:byte(i)] = i - 1
+    end
+end
+
+-- Decode a base64 string to raw bytes (plain arithmetic, no bit library).
+-- Returns: bytes, nil on success or nil, error on failure
+local function decodeBase64(text)
+    local out = {}
+    for i = 1, #text, 4 do
+        local a, b, c, d = text:byte(i, i + 3)
+        local va, vb = BASE64_VALUES[a], BASE64_VALUES[b]
+        local vc, vd = BASE64_VALUES[c], BASE64_VALUES[d]
+        if not va or not vb then
+            return nil, "Invalid base64 data"
+        end
+        local n = va * 262144 + vb * 4096 + (vc or 0) * 64 + (vd or 0)
+        local bytes = string.char(math.floor(n / 65536), math.floor(n / 256) % 256, n % 256)
+        out[#out + 1] = bytes:sub(1, vd and 3 or (vc and 2 or 1))
+    end
+    return table.concat(out), nil
+end
+
+-- Write a file embedded in the code as base64 (e.g. an image a stylesheet has
+-- to load from disk) into the script's data directory. The file is left alone
+-- when it already holds the same bytes.
+-- Returns: path, nil on success or nil, error on failure
+function FileSystem.writeEmbeddedFile(filename, base64)
+    local dataDir, dirErr = FileSystem.getDataDir()
+    if not dataDir then
+        return nil, dirErr
+    end
+    local bytes, decodeErr = decodeBase64(base64)
+    if not bytes then
+        return nil, decodeErr
+    end
+    local path = FileSystem.joinPath(dataDir, filename)
+
+    local existing = io.open(path, "rb")
+    if existing then
+        local current = existing:read("*a")
+        existing:close()
+        if current == bytes then
+            return path, nil
+        end
+    end
+
+    if not FileSystem.createDirectory(dataDir) then
+        return nil, "Could not create data directory: " .. dataDir
+    end
+    local file, openErr = io.open(path, "wb")
+    if not file then
+        return nil, "Could not write " .. path .. ": " .. tostring(openErr)
+    end
+    file:write(bytes)
+    file:close()
+    return path, nil
+end
+
 -- ============================================================================
 -- SETTINGS MANAGEMENT
 -- ============================================================================

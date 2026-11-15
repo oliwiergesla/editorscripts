@@ -158,12 +158,24 @@ local function warningIcon()
     return '<center><img width="52" height="52" src="data:image/png;base64,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"/></center>'
 end
 
--- Footer logo: the EditorScripts icon wrapped in a link to the website.
--- The PNG is a 34x32 px 2x export shown at 17x16, so it stays sharp on HiDPI
--- screens. Keep the tags free of whitespace, or Qt renders it as underlined
--- link text beside the image.
-local function footerLogo()
-    return '<a href="' .. WEBSITE_URL .. '" style="text-decoration:none;"><img width="17" height="16" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACIAAAAgCAYAAAB3j6rJAAAABmJLR0QA/wD/AP+gvaeTAAACKUlEQVRYhe3Wu2sUURTH8e85OztrOk1h4wqCDzClFmoRtBErQbTwDxAby5DMkAVhqt3JWATE3j5oZWEvCCKikqBEJKAiRCQoqLAz6849FjEQErOP2cAU5tddzrnnfm4xD4nj+AFwjfKSicgNBa6WiACoAZcV+F0yBOdcxxORW8ClEh1d4E6J5++ld2Rubq4OnHXOydai53nvZmZmFjfWSZKcyvP86DAHmNlSo9FYHgTyycwO71Dvmtnx2dnZD81mc0JVlwAdBgK0fd+vT01NfevVpD0QAJ6ZHQIQkXoBBMBYmqYH+zUpsNqj7jzP+/IXsgpYAUjm+/5avyZptVrHVPW8c66yTam6GIbhs411kiSTeZ6fHEZRqVSeB0Hwepg9ewGQZrN5RkQuFB2gqm3gfhiGP0eBeKr6GDhQdICZYWbjQDQKREdBbMrIMxR4swuQkWd4InLOOXei6AAzazcajbejQvayNdJqta6LyBUR2fZmBV4FQRCLiC0sLFRWVlZuq+rEoMPNzETkaRiGd/tC4jhuA/t2alDV00EQvEySZNI592RQxOZ4nndkenr6Y68e7YUA6Ha7YwB5no8VQQB0Op2+exV40aP+vVqtvmf967sM/CrgWO10Op/7NUkURX6tVqv/q5hl2VoURT821vPz8/vTNB0fRpFl2dcoiopc4D+PxHF8U0QulmjoqmrsAffMzC8RQp7nuQLVMhGsP5FVBR4W/CneraTAoz8VXbys7pr2qwAAAABJRU5ErkJggg=="/></a>'
+-- Footer logo: the EditorScripts icon as base64 PNG, in two tints of the same
+-- shape. Each is a 34x32 px 2x export shown at 17x16, so it stays sharp on
+-- HiDPI screens.
+local FOOTER_LOGO_WIDTH, FOOTER_LOGO_HEIGHT = 17, 16
+-- Resting tint (#888888)
+local FOOTER_LOGO_PNG = "iVBORw0KGgoAAAANSUhEUgAAACIAAAAgCAYAAAB3j6rJAAAABmJLR0QA/wD/AP+gvaeTAAACKUlEQVRYhe3Wu2sUURTH8e85OztrOk1h4wqCDzClFmoRtBErQbTwDxAby5DMkAVhqt3JWATE3j5oZWEvCCKikqBEJKAiRCQoqLAz6849FjEQErOP2cAU5tddzrnnfm4xD4nj+AFwjfKSicgNBa6WiACoAZcV+F0yBOdcxxORW8ClEh1d4E6J5++ld2Rubq4OnHXOydai53nvZmZmFjfWSZKcyvP86DAHmNlSo9FYHgTyycwO71Dvmtnx2dnZD81mc0JVlwAdBgK0fd+vT01NfevVpD0QAJ6ZHQIQkXoBBMBYmqYH+zUpsNqj7jzP+/IXsgpYAUjm+/5avyZptVrHVPW8c66yTam6GIbhs411kiSTeZ6fHEZRqVSeB0Hwepg9ewGQZrN5RkQuFB2gqm3gfhiGP0eBeKr6GDhQdICZYWbjQDQKREdBbMrIMxR4swuQkWd4InLOOXei6AAzazcajbejQvayNdJqta6LyBUR2fZmBV4FQRCLiC0sLFRWVlZuq+rEoMPNzETkaRiGd/tC4jhuA/t2alDV00EQvEySZNI592RQxOZ4nndkenr6Y68e7YUA6Ha7YwB5no8VQQB0Op2+exV40aP+vVqtvmf967sM/CrgWO10Op/7NUkURX6tVqv/q5hl2VoURT821vPz8/vTNB0fRpFl2dcoiopc4D+PxHF8U0QulmjoqmrsAffMzC8RQp7nuQLVMhGsP5FVBR4W/CneraTAoz8VXbys7pr2qwAAAABJRU5ErkJggg=="
+-- Tint under the pointer (#E3E3E2)
+local FOOTER_LOGO_HOVER_PNG = "iVBORw0KGgoAAAANSUhEUgAAACIAAAAgCAYAAAB3j6rJAAAABmJLR0QA/wD/AP+gvaeTAAACGklEQVRYhe2WQWsTQRiGn292m2Y1ghaSw2bXNGoEe9SDXopexJMgevAHiBf/g+Cx4E28+wf05MG7IIiISkuk4iHNbGjEFAWVJE03Ox6aHGztbpMV9mDe03y877zzLAvDSBA0n4LcIjttg9xRIDczhACYFzHXFbCTMQjGyMAGuQdcyxAjBB5md/5MCZJWq+XB8BIge01j1Cff91fH8+bmxvkoktOTHKBUtOa61fVEkCDQGvAP8MMwHNaq1epGs9lcUkrWADUJCNAD8Xzf/xYLHAMBYOdyqgwgIt4UEACOZYWlpJAC2jF+NBzKlxFIGzBTgGzD/FZSSIIgOANcFoms/ba16nne6/GktV5WypybjMN643neh8n2zLT7ay5CdCVFRy+fP/KkWCz+TANig3kBciJNSb/fXQAepOlQQCqIUU3qDgXU05aIROk7Op3OsW63ezZFR69SqXxMCzLTXonW+rZS3DBG9t2sItH7cvnkiogYY4zVaun7oJYOW26MMSLmle9XHiWCBIHuAfmDApYVXXDdxXda62URXh4W4s+OcNF1TzXjMioOgt2HrTNaOnG5eEniXgW8jfG/W9bOZwDbtteBX1NQtG37aCspJPV6PVcoFLy/mYPBYKtWq/0Yz41G47hSamESCsdxvpZKpWk+4D+XBEFwF7iaHYIJQVZsMI+BXHYgANFQAXPZQoCIzCmQZ1M+iv+V+sbI89+djKF5yp1YHgAAAABJRU5ErkJggg=="
+-- 1x1 fully transparent PNG, stretched over the logo as an invisible link
+local TRANSPARENT_PIXEL_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNgAAIAAAUAAen63NgAAAAASUVORK5CYII="
+
+-- Rich-text link to the website around the given image, sized to the footer
+-- logo. Keep the tags free of whitespace, or Qt renders it as underlined link
+-- text beside the image.
+local function footerLinkMarkup(pngBase64)
+    return '<a href="' .. WEBSITE_URL .. '" style="text-decoration:none;">'
+        .. '<img width="' .. FOOTER_LOGO_WIDTH .. '" height="' .. FOOTER_LOGO_HEIGHT .. '"'
+        .. ' src="data:image/png;base64,' .. pngBase64 .. '"/></a>'
 end
 
 -- ============================================================================
@@ -303,9 +315,11 @@ local STATUS_ICON_STYLE = [[
 -- Module dependencies - injected by the ResolveKit facade.
 UI._resolveTheme = nil   -- () -> "gray"|"blue"; composed by the facade
                          -- (user_preferences.json override, then file detection)
+UI._writeEmbeddedFile = nil  -- (filename, base64) -> path | nil, err
 
-function UI._injectDependencies(resolveTheme)
+function UI._injectDependencies(resolveTheme, writeEmbeddedFile)
     UI._resolveTheme = resolveTheme
+    UI._writeEmbeddedFile = writeEmbeddedFile
 end
 
 local resolvedTheme, resolvedColors, resolvedStyles
@@ -866,6 +880,40 @@ end
 -- UI ELEMENTS
 -- ============================================================================
 
+-- Builds the footer logo: a link to the website that brightens under the pointer.
+-- It is a Label holding a rich-text link, not a Button: Qt opens the link itself
+-- (OpenExternalLinks) and shows the pointing-hand cursor over it, so it needs no
+-- click handler.
+-- The hover change is a stylesheet image swap. Stylesheets load images from
+-- files only, never from data URIs, so both tints are written to the script's
+-- data folder and the link over them is an invisible image. If the files cannot
+-- be written, the logo is a plain image link that does not change on hover.
+local function createFooterLogo(ui)
+    local label = {
+        ID = "FooterWebsiteLink",
+        Weight = 0,
+        OpenExternalLinks = true,
+        Text = footerLinkMarkup(FOOTER_LOGO_PNG),
+    }
+
+    local write = UI._writeEmbeddedFile
+    local normal = write and write("resolvekit_footer_logo.png", FOOTER_LOGO_PNG)
+    local hover = normal and write("resolvekit_footer_logo_hover.png", FOOTER_LOGO_HOVER_PNG)
+    if normal and hover and not (normal .. hover):find('["\n]') then
+        -- Forward slashes on every platform: a stylesheet reads "\" as an escape
+        normal = normal:gsub("\\", "/")
+        hover = hover:gsub("\\", "/")
+        label.Text = footerLinkMarkup(TRANSPARENT_PIXEL_PNG)
+        -- Exact size, so the stretched image keeps its proportions
+        label.MinimumSize = {FOOTER_LOGO_WIDTH, FOOTER_LOGO_HEIGHT}
+        label.MaximumSize = {FOOTER_LOGO_WIDTH, FOOTER_LOGO_HEIGHT}
+        label.StyleSheet = 'QLabel { border-image: url("' .. normal .. '") 0 0 0 0 stretch stretch; }'
+            .. ' QLabel:hover { border-image: url("' .. hover .. '") 0 0 0 0 stretch stretch; }'
+    end
+
+    return ui:Label(label)
+end
+
 --- Creates a reusable footer element for script dialogs
 -- Layout: EditorScripts logo (links to the website) on the left, script name
 -- and version on the right.
@@ -875,11 +923,8 @@ end
 --   - version (string): Version number (e.g., "0.1.0")
 --   - padding (number, optional): Left/right padding in pixels (default: 28)
 -- @return VGroup UI element
--- @note The logo is a Label holding a rich-text link, not a Button: Qt opens
---       the link itself (OpenExternalLinks) and shows the pointing-hand cursor
---       over it, neither of which a Button can do with an image. It needs no
---       click handler. Its label is the same height as the text row, so the
---       logo does not change the footer's height.
+-- @note The logo is no taller than the text row, so it does not change the
+--       footer's height.
 -- @note The footer owns the gap to the window's bottom edge, tuned so it looks
 --       identical to the divider-to-text gap. Scripts must never add their own
 --       gap below the footer; instead place a ui:VGap(0, 1) stretch immediately
@@ -918,12 +963,7 @@ function UI.createFooter(ui, options)
             Spacing = 0,
             ui:HGap(padding),
             -- Left side: logo, links to the website
-            ui:Label{
-                ID = "FooterWebsiteLink",
-                Text = footerLogo(),
-                Weight = 0,
-                OpenExternalLinks = true,
-            },
+            createFooterLogo(ui),
             -- Spacer
             ui:Label{ Weight = 1 },
             -- Right side: Script Name + Version (dimmed)

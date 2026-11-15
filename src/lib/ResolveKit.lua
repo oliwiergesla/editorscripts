@@ -50,8 +50,9 @@ local function resolveTheme()
     return Core.getResolveTheme()
 end
 
--- UI module needs the composed theme resolver
-UI._injectDependencies(resolveTheme)
+-- UI module needs the composed theme resolver and a way to put embedded
+-- images on disk (stylesheets cannot load them from memory)
+UI._injectDependencies(resolveTheme, FileSystem.writeEmbeddedFile)
 
 -- ============================================================================
 -- CREATE FACADE
@@ -249,6 +250,7 @@ ResolveKit.writeJSONFile = FileSystem.writeJSONFile
 ResolveKit.getScriptPath = FileSystem.getScriptPath
 ResolveKit.getScriptDir = FileSystem.getScriptDir
 ResolveKit.getDataDir = FileSystem.getDataDir
+ResolveKit.writeEmbeddedFile = FileSystem.writeEmbeddedFile
 
 -- Settings Management
 ResolveKit.loadSettings = FileSystem.loadSettings
