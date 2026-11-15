@@ -350,8 +350,6 @@ local function buildResolutionDialog(ui, dispatcher)
 
     local itm = dialog:GetItems()
 
-    utils.attachFooterHandler(dialog)
-
     -- Combo population and selection sync live in the main script
     return {
         dialog = dialog,

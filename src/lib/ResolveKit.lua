@@ -50,8 +50,8 @@ local function resolveTheme()
     return Core.getResolveTheme()
 end
 
--- UI module needs the openURL function and the composed theme resolver
-UI._injectDependencies(Core.openURL, resolveTheme)
+-- UI module needs the composed theme resolver
+UI._injectDependencies(resolveTheme)
 
 -- ============================================================================
 -- CREATE FACADE
@@ -212,7 +212,6 @@ ResolveKit.runWithDialogBusy = UI.runWithDialogBusy
 
 -- UI Elements
 ResolveKit.createFooter = UI.createFooter
-ResolveKit.attachFooterHandler = UI.attachFooterHandler
 ResolveKit.fitDialogHeight = UI.fitDialogHeight
 ResolveKit.prewarmDialogSections = UI.prewarmDialogSections
 ResolveKit.toggleDialogSections = UI.toggleDialogSections

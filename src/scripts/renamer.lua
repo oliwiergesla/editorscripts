@@ -1121,8 +1121,6 @@ local function main()
         updateFormatPreview()
     end
 
-    utils.attachFooterHandler(dialog)
-
     -- Operation body (run via runWithDialogBusy so the dialog greys out and
     -- drops clicks while the Resolve API work runs)
     local function doAction()

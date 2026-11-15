@@ -579,8 +579,6 @@ local function buildDialog(ui, dispatcher)
         resolution = dialog:Find("SyncResolutionToggle"),
     }
 
-    utils.attachFooterHandler(dialog)
-
     return {
         dialog = dialog,
         setSource = function(name, meta)

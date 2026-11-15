@@ -892,8 +892,6 @@ local function showOptionsDialog(ui, dispatcher, savedPrefs, runExport)
         dispatcher:ExitLoop()
     end
 
-    utils.attachFooterHandler(dialog)
-
     -- Pre-lay-out collapsed sections while the window is still hidden so their
     -- first reveal doesn't paint a frame at unpositioned coordinates
     utils.prewarmDialogSections(dialog, {settingsContainer, qualityContainer})

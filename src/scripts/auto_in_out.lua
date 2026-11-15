@@ -242,8 +242,6 @@ local function buildSelectionDialog(ui, dispatcher)
         dialog:Resize({CONFIG.DIALOG_WIDTH, CONFIG.DIALOG_FALLBACK_HEIGHT})
     end
 
-    utils.attachFooterHandler(dialog)
-
     return dialog
 end
 

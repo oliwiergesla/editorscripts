@@ -158,6 +158,14 @@ local function warningIcon()
     return '<center><img width="52" height="52" src="data:image/png;base64,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"/></center>'
 end
 
+-- Footer logo: the EditorScripts icon wrapped in a link to the website.
+-- The PNG is a 34x32 px 2x export shown at 17x16, so it stays sharp on HiDPI
+-- screens. Keep the tags free of whitespace, or Qt renders it as underlined
+-- link text beside the image.
+local function footerLogo()
+    return '<a href="' .. WEBSITE_URL .. '" style="text-decoration:none;"><img width="17" height="16" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACIAAAAgCAYAAAB3j6rJAAAABmJLR0QA/wD/AP+gvaeTAAACKUlEQVRYhe3Wu2sUURTH8e85OztrOk1h4wqCDzClFmoRtBErQbTwDxAby5DMkAVhqt3JWATE3j5oZWEvCCKikqBEJKAiRCQoqLAz6849FjEQErOP2cAU5tddzrnnfm4xD4nj+AFwjfKSicgNBa6WiACoAZcV+F0yBOdcxxORW8ClEh1d4E6J5++ld2Rubq4OnHXOydai53nvZmZmFjfWSZKcyvP86DAHmNlSo9FYHgTyycwO71Dvmtnx2dnZD81mc0JVlwAdBgK0fd+vT01NfevVpD0QAJ6ZHQIQkXoBBMBYmqYH+zUpsNqj7jzP+/IXsgpYAUjm+/5avyZptVrHVPW8c66yTam6GIbhs411kiSTeZ6fHEZRqVSeB0Hwepg9ewGQZrN5RkQuFB2gqm3gfhiGP0eBeKr6GDhQdICZYWbjQDQKREdBbMrIMxR4swuQkWd4InLOOXei6AAzazcajbejQvayNdJqta6LyBUR2fZmBV4FQRCLiC0sLFRWVlZuq+rEoMPNzETkaRiGd/tC4jhuA/t2alDV00EQvEySZNI592RQxOZ4nndkenr6Y68e7YUA6Ha7YwB5no8VQQB0Op2+exV40aP+vVqtvmf967sM/CrgWO10Op/7NUkURX6tVqv/q5hl2VoURT821vPz8/vTNB0fRpFl2dcoiopc4D+PxHF8U0QulmjoqmrsAffMzC8RQp7nuQLVMhGsP5FVBR4W/CneraTAoz8VXbys7pr2qwAAAABJRU5ErkJggg=="/></a>'
+end
+
 -- ============================================================================
 -- THEME PALETTES (gray / blue)
 -- ============================================================================
@@ -184,7 +192,6 @@ THEMES.gray = {
     textHint        = "rgb(120, 120, 120)",
     textDisabled    = "rgb(100, 100, 100)",
     textMuted       = "#888888",
-    textMutedHover  = "#AAAAAA",
     versionGhost    = "rgba(136, 136, 136, 128)",
     -- status dialog family (key names shared with installer PALETTES)
     statusBtnBg     = "#3d3d3d",
@@ -245,7 +252,6 @@ THEMES.blue = {
     textHint        = "rgb(120, 120, 120)",
     textDisabled    = "rgb(100, 100, 100)",
     textMuted       = "#888888",
-    textMutedHover  = "#AAAAAA",
     versionGhost    = "rgba(136, 136, 136, 128)",
     -- status dialog family (blue-tinted surfaces, identical text)
     statusBtnBg     = "#3d3d43",
@@ -295,12 +301,10 @@ local STATUS_ICON_STYLE = [[
 -- THEME RESOLUTION & STYLE BUILDING
 -- ============================================================================
 -- Module dependencies - injected by the ResolveKit facade.
-UI._openURL = nil
 UI._resolveTheme = nil   -- () -> "gray"|"blue"; composed by the facade
                          -- (user_preferences.json override, then file detection)
 
-function UI._injectDependencies(openURL, resolveTheme)
-    UI._openURL = openURL
+function UI._injectDependencies(resolveTheme)
     UI._resolveTheme = resolveTheme
 end
 
@@ -863,14 +867,19 @@ end
 -- ============================================================================
 
 --- Creates a reusable footer element for script dialogs
+-- Layout: EditorScripts logo (links to the website) on the left, script name
+-- and version on the right.
 -- @param ui Fusion UIManager instance
 -- @param options Table with footer options:
 --   - scriptName (string): Display name for the script
 --   - version (string): Version number (e.g., "0.1.0")
---   - linkText (string, optional): Text for the link button (default: "EditorScripts")
 --   - padding (number, optional): Left/right padding in pixels (default: 28)
 -- @return VGroup UI element
--- @note Call utils.attachFooterHandler(dialog) after dialog creation to wire up the website link
+-- @note The logo is a Label holding a rich-text link, not a Button: Qt opens
+--       the link itself (OpenExternalLinks) and shows the pointing-hand cursor
+--       over it, neither of which a Button can do with an image. It needs no
+--       click handler. Its label is the same height as the text row, so the
+--       logo does not change the footer's height.
 -- @note The footer owns the gap to the window's bottom edge, tuned so it looks
 --       identical to the divider-to-text gap. Scripts must never add their own
 --       gap below the footer; instead place a ui:VGap(0, 1) stretch immediately
@@ -879,7 +888,6 @@ function UI.createFooter(ui, options)
     options = options or {}
     local scriptName = options.scriptName or "Script"
     local version = options.version or "1.0.0"
-    local linkText = options.linkText or "EditorScripts"
     local padding = options.padding or 28
     local textGap = 2    -- divider line to text row
     local bottomGap = 8  -- text row to window edge: structurally larger than textGap
@@ -909,7 +917,16 @@ function UI.createFooter(ui, options)
             Weight = 0,
             Spacing = 0,
             ui:HGap(padding),
-            -- Left side: Script Name + Version (dimmed)
+            -- Left side: logo, links to the website
+            ui:Label{
+                ID = "FooterWebsiteLink",
+                Text = footerLogo(),
+                Weight = 0,
+                OpenExternalLinks = true,
+            },
+            -- Spacer
+            ui:Label{ Weight = 1 },
+            -- Right side: Script Name + Version (dimmed)
             ui:Label{
                 Text = scriptName .. "  ",
                 Weight = 0,
@@ -920,31 +937,12 @@ function UI.createFooter(ui, options)
                 Weight = 0,
                 StyleSheet = "color: " .. C.versionGhost .. "; font-size: 10px;",
             },
-            -- Spacer
-            ui:Label{ Weight = 1 },
-            -- Right side: Website link button
-            ui:Button{
-                ID = "FooterWebsiteLink",
-                Text = linkText,
-                Weight = 0,
-                Flat = true,
-                StyleSheet = "QPushButton { color: " .. C.textMuted .. "; font-size: 10px; background: transparent; border: none; }"
-                    .. " QPushButton:hover { color: " .. C.textMutedHover .. "; text-decoration: underline; }",
-            },
             ui:HGap(padding),
         },
 
         -- Bottom-edge gap: must visually mirror the divider-to-text gap above
         ui:VGap(bottomGap),
     }
-end
-
---- Attaches the footer website link click handler to a dialog or window
--- @param dialogOrWin The dialog or window object returned by disp:AddWindow()
-function UI.attachFooterHandler(dialogOrWin)
-    function dialogOrWin.On.FooterWebsiteLink.Clicked(ev)
-        if UI._openURL then UI._openURL(WEBSITE_URL) end
-    end
 end
 
 -- Window frame delta: win:Resize takes the frame-inclusive OUTER size while

@@ -1062,8 +1062,6 @@ local function runSetupUI(ctx)
         dialog:Resize({CONFIG.DIALOG_WIDTH, CONFIG.DIALOG_FALLBACK_HEIGHT})
     end
 
-    utils.attachFooterHandler(dialog)
-
     local locationCombo = dialog:Find("LocationCombo")
     local modeCombo = dialog:Find("ModeCombo")
     local selectorLabel = dialog:Find("SelectorLabel")

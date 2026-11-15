@@ -457,8 +457,6 @@ local function buildMarkerSyncDialog(ui, dispatcher)
     frameRateCombo:AddItems(CONFIG.FRAME_CONVERSION)
     frameRateCombo.CurrentIndex = 0  -- Default to first option
 
-    utils.attachFooterHandler(dialog)
-
     -- Return dialog and getter functions for current settings
     return {
         dialog = dialog,

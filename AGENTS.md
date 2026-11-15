@@ -162,7 +162,7 @@ Use `utils.createProgressWindow()` for batch operations. See `ui.lua` for the fu
 
 ### Footer Rules
 
-Use `utils.createFooter(ui, {scriptName, version})` and `utils.attachFooterHandler(dialog)`. Key constraints:
+Use `utils.createFooter(ui, {scriptName, version})`. Key constraints:
 - Footer must be **outside** the padded content area (last element in the root VGroup, not inside HGroup padding) to span full width
 - Footer must be preceded by `ui:VGap(0, 1)` as the second child of the dialog's root VGroup — the stretch absorbs any surplus window height so the footer stays pinned to the bottom
 - Bottom-edge padding lives inside `createFooter` (`bottomGap`, structurally larger than the divider-to-text `textGap` so the two read as visually identical — label font boxes have more dead space above glyphs than below) — never add per-script gaps below the footer

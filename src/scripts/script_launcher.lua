@@ -803,8 +803,6 @@ local function runSetupUI(ctx)
         dialog:Resize({CONFIG.DIALOG_WIDTH, CONFIG.DIALOG_FALLBACK_HEIGHT})
     end
 
-    utils.attachFooterHandler(dialog)
-
     local scriptCombo = dialog:Find("ScriptCombo")
 
     local labels = {}

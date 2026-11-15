@@ -747,8 +747,6 @@ local function showOptionsDialog(ui, dispatcher, savedPrefs, runExport)
         dispatcher:ExitLoop()
     end
 
-    utils.attachFooterHandler(dialog)
-
     -- Auto-size height to content, then center on Resolve's display before Show
     if not utils.fitDialogHeight(dialog, CONFIG.DIALOG_WIDTH) then
         dialog:Resize({CONFIG.DIALOG_WIDTH, CONFIG.DIALOG_FALLBACK_HEIGHT})
