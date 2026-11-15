@@ -95,9 +95,29 @@ function FileSystem.getUniqueFilePath(destDir, filename)
     return nil, nil
 end
 
+-- Size of a file in bytes, or nil when it cannot be opened
+local function getFileSize(path)
+    local file = io.open(path, "rb")
+    if not file then
+        return nil
+    end
+    local size = file:seek("end")
+    file:close()
+    return size
+end
+
 -- Copy file from source to destination (for cross-device moves)
--- Chunked so multi-GB media files never get loaded into memory whole
+-- Chunked so multi-GB media files never get loaded into memory whole.
+-- Succeeds only when the destination holds every byte of the source. A read
+-- error, a failed final flush or a size mismatch fails the copy and removes
+-- the partial destination: moveFile deletes the source on the strength of
+-- this result, and a truncated file must never be left under the final name.
 function FileSystem.copyFile(source, dest)
+    -- Opening the destination truncates it, which would empty the source
+    if source == dest then
+        return false, "Source and destination are the same file"
+    end
+
     local sourceFile = io.open(source, "rb")
     if not sourceFile then
         return false, "Could not open source file"
@@ -110,63 +130,95 @@ function FileSystem.copyFile(source, dest)
     end
 
     local chunkSize = 16 * 1024 * 1024  -- 16 MB
+    local bytesCopied = 0
+    local failure = nil
+
     while true do
-        local chunk = sourceFile:read(chunkSize)
+        -- read() returns nil at end of file AND on a read error; only the
+        -- error comes with a message
+        local chunk, readErr = sourceFile:read(chunkSize)
         if not chunk then
-            break  -- End of file
+            if readErr then
+                failure = "Could not read source file: " .. tostring(readErr)
+            end
+            break
         end
 
         local writeSuccess, writeErr = destFile:write(chunk)
         if not writeSuccess then
-            sourceFile:close()
-            destFile:close()
-            return false, "Could not write to destination file: " .. tostring(writeErr)
+            failure = "Could not write to destination file: " .. tostring(writeErr)
+            break
         end
+        bytesCopied = bytesCopied + #chunk
 
         if #chunk < chunkSize then
             break  -- Last (short) chunk
         end
     end
 
+    local sourceSize = sourceFile:seek("end")
     sourceFile:close()
-    destFile:close()
+
+    -- close() flushes the last buffered bytes, so it can fail where write()
+    -- reported success (full or disconnected volume)
+    local closeSuccess, closeErr = destFile:close()
+    if not failure and not closeSuccess then
+        failure = "Could not finish writing destination file: " .. tostring(closeErr)
+    end
+
+    if not failure and sourceSize ~= bytesCopied then
+        failure = "Copy is incomplete: read " .. bytesCopied .. " of "
+            .. tostring(sourceSize) .. " bytes"
+    end
+    if not failure then
+        local destSize = getFileSize(dest)
+        if destSize ~= bytesCopied then
+            failure = "Copy is incomplete: destination holds " .. tostring(destSize)
+                .. " of " .. bytesCopied .. " bytes"
+        end
+    end
+
+    if failure then
+        os.remove(dest)
+        return false, failure
+    end
 
     return true
 end
 
+-- errno EXDEV: rename() cannot cross volumes (18 on macOS and Linux)
+local ERRNO_CROSS_DEVICE = 18
+
 -- Move file (handles cross-device moves)
 function FileSystem.moveFile(source, dest)
     -- Try simple rename first (works for same device)
-    local success, err = os.rename(source, dest)
+    local success, err, code = os.rename(source, dest)
 
     if success then
         return true, nil
     end
 
-    -- If rename failed due to cross-device link, do copy + delete
-    if err and (err:match("Cross%-device link") or err:match("Invalid cross%-device link")) then
-        -- Copy the file
-        local copySuccess, copyErr = FileSystem.copyFile(source, dest)
-        if not copySuccess then
-            return false, "Copy failed: " .. (copyErr or "unknown error")
-        end
-
-        -- Verify the copy was successful by checking file exists
-        if not FileSystem.fileExists(dest) then
-            return false, "Copy verification failed"
-        end
-
-        -- Delete the original file
-        local deleteSuccess = os.remove(source)
-        if not deleteSuccess then
-            return false, "File copied but original could not be deleted"
-        end
-
-        return true, nil
+    -- A rename across volumes needs copy + delete. Detected by error code;
+    -- the message match stays for runtimes that do not return one.
+    local crossDevice = code == ERRNO_CROSS_DEVICE
+        or (err and (err:match("Cross%-device link") or err:match("Invalid cross%-device link")))
+    if not crossDevice then
+        return false, err
     end
 
-    -- Some other error occurred
-    return false, err
+    -- copyFile succeeds only once the destination holds every byte, so the
+    -- original is safe to delete after it
+    local copySuccess, copyErr = FileSystem.copyFile(source, dest)
+    if not copySuccess then
+        return false, "Copy failed: " .. (copyErr or "unknown error")
+    end
+
+    local deleteSuccess = os.remove(source)
+    if not deleteSuccess then
+        return false, "File copied but original could not be deleted"
+    end
+
+    return true, nil
 end
 
 -- ============================================================================
