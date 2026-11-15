@@ -223,6 +223,50 @@ function Timeline.setCurrentTimeline(project, timeline)
     return true, nil
 end
 
+-- Set In/Out marks (video and audio) on a timeline. Works without switching
+-- the current timeline; the switch is only a last-resort fallback.
+-- Parameters:
+--   project: Project object (used only by the fallback switch)
+--   timeline: Timeline object
+--   inFrame, outFrame: absolute timeline frames (outFrame is the last frame included)
+--   timelineStart: timeline:GetStartFrame() when the caller already has it (optional)
+-- Returns: success, error
+function Timeline.setTimelineInOut(project, timeline, inFrame, outFrame, timelineStart)
+    if not project or not timeline then
+        return false, "Invalid project or timeline"
+    end
+
+    -- Use cached timeline start if provided, otherwise fetch it
+    timelineStart = timelineStart or timeline:GetStartFrame()
+
+    -- Convert to timeline-relative frames
+    local relativeIn = inFrame - timelineStart
+    local relativeOut = outFrame - timelineStart
+
+    -- Try relative frames first
+    local success = timeline:SetMarkInOut(relativeIn, relativeOut, "all")
+
+    if not success then
+        -- Fallback: Try absolute frames
+        success = timeline:SetMarkInOut(inFrame, outFrame, "all")
+    end
+
+    if not success then
+        -- Final fallback: Set as current timeline and try again
+        local setSuccess = Timeline.setCurrentTimeline(project, timeline)
+        if setSuccess then
+            success = timeline:SetMarkInOut(relativeIn, relativeOut, "all") or
+                     timeline:SetMarkInOut(inFrame, outFrame, "all")
+        end
+    end
+
+    if not success then
+        return false, "Could not set timeline In/Out marks"
+    end
+
+    return true, nil
+end
+
 -- Get actual timeline resolution (reads from timeline settings, not name)
 -- Returns: {width, height, string} or nil, error
 function Timeline.getTimelineResolution(timeline)

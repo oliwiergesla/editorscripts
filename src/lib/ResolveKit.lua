@@ -154,6 +154,7 @@ ResolveKit.getSelectedTimelines = Timeline.getSelectedTimelines
 ResolveKit.getTimelineLookup = Timeline.getTimelineLookup
 ResolveKit.getTimelineDuration = Timeline.getTimelineDuration
 ResolveKit.setCurrentTimeline = Timeline.setCurrentTimeline
+ResolveKit.setTimelineInOut = Timeline.setTimelineInOut
 ResolveKit.getTimelineResolution = Timeline.getTimelineResolution
 ResolveKit.setTimelineFlag = Timeline.setTimelineFlag
 ResolveKit.getAllTimelines = Timeline.getAllTimelines
