@@ -401,12 +401,15 @@ function Core.sleep(seconds)
 end
 
 -- Open URL in default browser (cross-platform)
--- Prefers Fusion's native bmd.openfileexternal: shell-free, so no console
--- window flashes on Windows. os.execute branches remain as fallback.
+-- Prefers Fusion's native bmd.openurl: shell-free, so no console window
+-- flashes on Windows. Never route URLs through bmd.openfileexternal - it only
+-- handles filesystem paths, and for a URL it returns false and opens nothing
+-- (verified macOS, Resolve 21.2). os.execute branches remain as fallback for
+-- when openurl is missing or reports failure.
 function Core.openURL(url)
-    if bmd and bmd.openfileexternal then
-        bmd.openfileexternal("Open", url)
-        return
+    if bmd and bmd.openurl then
+        local ok, opened = pcall(bmd.openurl, url)
+        if ok and opened ~= false then return end
     end
     if Core.IS_WINDOWS then
         os.execute('start "" "' .. url .. '"')
