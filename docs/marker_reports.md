@@ -46,11 +46,11 @@ Run **Workspace → Scripts → EditorScripts → Marker Reports**, then select 
 
 - **"Both" keeps one marker per frame.** When a clip marker lands on the same frame as a timeline marker, the timeline marker wins and the clip marker is dropped.
 
-- **Thumbnails are downscaled on macOS only.** Windows embeds frame grabs at full resolution, so thumbnail reports are larger there.
+- **Thumbnails on Windows are downscaled from Resolve 21.2.** On older versions Windows embeds frame grabs at full resolution, so thumbnail reports are larger there. macOS always downscales.
 
 - **A temporary hidden folder appears during export.** A folder named `.report_tmp` holds thumbnail files inside your chosen output folder while the export runs. It cleans itself up, but a crash can leave it behind; it is safe to delete.
 
-- **Thumbnails require moving the playhead.** Resolve can only hand a script the frame under the playhead, so grabbing thumbnails means loading each timeline and stepping the playhead to every marker. Text Only mode skips this and is much faster.
+- **Thumbnails open each timeline.** The script makes each timeline current while it grabs thumbnails. This ensures the timeline has been opened in the session, otherwise the thumbnails come out completely black. Text Only mode skips this and is much faster.
 
 - **Generators and titles don't share their clip markers.** Resolve doesn't give scripts access to markers on generators and titles, so those markers never show up in reports.
 

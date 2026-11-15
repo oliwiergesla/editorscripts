@@ -1,6 +1,6 @@
 local SCRIPT_INFO = {
     NAME = "Marker Reports",
-    VERSION = "1.0.4",
+    VERSION = "1.1.0",
     MIN_RESOLVE = "20.0",
 }
 
@@ -57,7 +57,8 @@ local CONFIG = {
         "Text Only (Faster)"
     },
 
-    REPORT_THUMB_PX = 640,              -- macOS sips downscale long-edge for embedded JPEGs
+    REPORT_THUMB_PX = 640,              -- long edge of the embedded thumbnail JPEGs
+    REPORT_THUMB_QUALITY = 80,          -- JPEG quality of thumbnails rendered by ExportFrame
     DIALOG_WIDTH = 420,
     DIALOG_FALLBACK_HEIGHT = 320,       -- only used if fitDialogHeight fails
 }
@@ -65,6 +66,15 @@ local CONFIG = {
 
 -- Settings key for persisting user preferences
 local SETTINGS_KEY = "markerReports"
+
+-- Resolve 21.2+: Timeline:ExportFrame renders a downscaled JPEG in one call -
+-- no playhead move, no sips. Set once after init. A version compare, not a
+-- method probe: the method exists from 21.1.2 but its maxDimension/quality
+-- options only from 21.2, and option keys cannot be probed.
+--
+-- PHASE-OUT: once MIN_RESOLVE reaches 21.2, delete this flag and the playhead
+-- + sips branch of makeThumbnailJpeg it guards.
+local exportFrameSupported = false
 
 -- ============================================================================
 -- SETTINGS
@@ -193,13 +203,29 @@ end
 -- REPORT GENERATION
 -- ============================================================================
 
--- Render a JPEG for the marker at `timecode` into the hidden temp dir, for
--- embedding in the report. The timeline must already be current (this parks the
--- playhead at the marker). On macOS the JPEG is downscaled with sips to keep
--- report file sizes reasonable. Returns the temp JPEG path, or nil on failure
--- (thumbnails are best-effort and never fatal).
-local function makeThumbnailJpeg(ctx, timeline, timecode, tmpDir, tlIdx, idx)
+-- Render a JPEG for one marker into the hidden temp dir, for embedding in the
+-- report. `frame` is the marker's 0-based offset from the timeline start and
+-- `timecode` the same position as a timecode. Returns the temp JPEG path, or
+-- nil on failure (thumbnails are best-effort and never fatal).
+--
+-- The timeline must already be current on every version: Resolve 21.2+ renders
+-- the downscaled JPEG directly, but ExportFrame returns success with a BLACK
+-- frame for a timeline that has not been opened since the project was loaded
+-- (measured November 2026). Older builds park the playhead at the marker, and
+-- only macOS downscales, with sips.
+local function makeThumbnailJpeg(ctx, timeline, frame, timecode, tmpDir, tlIdx, idx)
     local jpgPath = tmpDir .. utils.PATH_SEP .. string.format("t%02d_r%05d.jpg", tlIdx, idx)
+
+    if exportFrameSupported then
+        local result = timeline:ExportFrame(frame, {
+            outputType = "file",
+            filePath = jpgPath,
+            maxDimension = CONFIG.REPORT_THUMB_PX,
+            quality = CONFIG.REPORT_THUMB_QUALITY,
+        })
+        if type(result) == "table" and result.success then return jpgPath end
+        return nil
+    end
 
     timeline:SetCurrentTimecode(timecode)
     if not ctx.project:ExportCurrentFrameAsStill(jpgPath) then return nil end
@@ -323,8 +349,8 @@ local function processTimelines(ctx, timelines, outputPath, options)
     local totalTimelines = #markerList
     print(string.format("Found %d marker(s) across %d timeline(s)", totalMarkers, totalTimelines))
 
-    if options.withThumbs and not utils.IS_MACOS then
-        utils.printStatus("INFO", "Thumbnails embed at full resolution (downscale is macOS-only)")
+    if options.withThumbs and not exportFrameSupported and not utils.IS_MACOS then
+        utils.printStatus("INFO", "Thumbnails embed at full resolution (downscaling needs Resolve 21.2 on this platform)")
     end
 
     -- Progress window (one tick per timeline; per-marker updates refresh the
@@ -350,6 +376,11 @@ local function processTimelines(ctx, timelines, outputPath, options)
     local failedTimelines = 0
     local lastFinalized = 0
 
+    -- ExportFrame thumbnails leave every playhead alone, so the user is put
+    -- back on the timeline they started on after the batch
+    local originalTimeline = (options.withThumbs and exportFrameSupported)
+                             and ctx.project:GetCurrentTimeline() or nil
+
     for tIdx, entry in ipairs(markerList) do
         if progress and progress.isCancelled() then break end
 
@@ -363,8 +394,8 @@ local function processTimelines(ctx, timelines, outputPath, options)
 
         print(string.format("\n[Timeline: %s]%s", timelineName, isDropFrame and " (drop-frame)" or ""))
 
-        -- Thumbnails need the timeline current so the playhead can be parked at
-        -- each marker; text-only mode never switches timelines (much faster)
+        -- Thumbnails need the timeline current (see makeThumbnailJpeg);
+        -- text-only mode never switches timelines (much faster)
         local tmpDir = nil
         local renderThumbs = false
         if options.withThumbs then
@@ -404,7 +435,7 @@ local function processTimelines(ctx, timelines, outputPath, options)
 
             local jpegPath = nil
             if renderThumbs then
-                jpegPath = makeThumbnailJpeg(ctx, timeline, startTC, tmpDir, tIdx, #rows + 1)
+                jpegPath = makeThumbnailJpeg(ctx, timeline, frame, startTC, tmpDir, tIdx, #rows + 1)
                 if not jpegPath then
                     utils.printStatus("WARN", string.format("Frame %d: thumbnail render failed - row embeds no image", frame))
                 end
@@ -465,6 +496,10 @@ local function processTimelines(ctx, timelines, outputPath, options)
             progress.update(tIdx, timelineName,
                 string.format('[%d/%d] %s - done', tIdx, totalTimelines, timelineName))
         end
+    end
+
+    if originalTimeline then
+        utils.setCurrentTimeline(ctx.project, originalTimeline)
     end
 
     -- A cancel that lands after the last marker was already processed is
@@ -746,6 +781,10 @@ local project = ctx.project
 local mediaPool = ctx.mediaPool
 local ui = ctx.ui
 local dispatcher = ctx.dispatcher
+
+local resolveVersion = utils.getResolveVersion(ctx.resolve)
+exportFrameSupported = resolveVersion ~= nil
+    and (resolveVersion.major > 21 or (resolveVersion.major == 21 and resolveVersion.minor >= 2))
 
 utils.printSuccess("Connected to DaVinci Resolve")
 local projectName = project:GetName()

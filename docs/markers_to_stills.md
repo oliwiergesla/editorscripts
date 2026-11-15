@@ -34,7 +34,7 @@ Run **Workspace → Scripts → EditorScripts → Markers to Stills**, then sele
 
 1. **Marker Source** — Timeline Markers, Clip Markers, or Both.
 2. **Marker Color** — All Colors, or a single marker color to filter by.
-3. **Export Format** — PNG, JPEG, TIFF, DPX, or EXR. On macOS a JPEG quality slider appears when JPEG is selected.
+3. **Export Format** — PNG, JPEG, TIFF, or DPX. A JPEG quality slider appears when JPEG is selected (on Windows this needs Resolve 21.2 or newer).
 4. **Options** (collapsible) — a filename pattern with token buttons (`{timeline}`, `{marker}`, `{frame}`, `{color}`, `{timecode}`, `{source}`) and a live preview, plus checkboxes for opening the folder after export, creating a subfolder per timeline, and overwriting existing files.
 5. **Export** — pick an output folder and the batch runs. **Add to Gallery** instead grabs the stills into the current Gallery album, using your filename pattern as the still label.
 6. **Reset** — restores your defaults (the ones you saved, or the built-ins if you never saved any). Hold **Cmd** (macOS) or **Ctrl** (Windows) while clicking to save the current state as your defaults instead, and hold **Cmd+Shift** (macOS) or **Ctrl+Shift** (Windows) to clear your saved defaults and return to the built-ins.
@@ -45,8 +45,6 @@ Run **Workspace → Scripts → EditorScripts → Markers to Stills**, then sele
 
 - **One still per frame.** When "Both" is selected and a clip marker shares a frame with a timeline marker, the timeline marker wins and only one still is exported.
 
-- **JPEG quality is macOS only.** On Windows, JPEG exports always use Resolve's default quality; the slider does not exist there.
-
 - **Canceling keeps partial output.** The progress window's Cancel button stops the batch, but already-exported files (or already-grabbed gallery stills) stay, and in disk mode the output folder still opens if that option is on.
 
 - **Filenames are cleaned up automatically.** Characters that aren't allowed in filenames become underscores, unknown `{tokens}` pass through literally, and name clashes get a numbered suffix unless Overwrite existing files is checked.
@@ -55,7 +53,7 @@ Run **Workspace → Scripts → EditorScripts → Markers to Stills**, then sele
 
 - **Before using Add to Gallery, open the Color page and select the destination album.** Stills land in whichever Gallery album is currently selected; the script does not create or switch albums.
 
-- **Exporting moves the playhead.** Resolve can only hand a script the frame under the playhead, so the script must make each timeline current and step the playhead to every marker.
+- **Exporting opens each timeline.** The script makes each selected timeline current while it works. This ensures Resolve has opened the timeline, otherwise the stills export completely black.
 
 - **Clip markers on generators and titles are skipped.** Resolve gives scripts no way to work out where those markers sit on the timeline, so the script skips them and prints a warning in Resolve's Console window (**Workspace → Console**).
 

@@ -1,6 +1,6 @@
 local SCRIPT_INFO = {
     NAME = "Markers to Stills",
-    VERSION = "1.0.4",
+    VERSION = "1.1.0",
     MIN_RESOLVE = "20.0",
 }
 
@@ -16,7 +16,8 @@ local SCRIPT_INFO = {
 
     Features:
         - Filters timeline and clip markers by color, with deduplication
-        - Exports PNG, JPEG, TIFF, DPX, or EXR (JPEG quality control on macOS)
+        - Exports PNG, JPEG, TIFF, or DPX, with JPEG quality control
+          (on Windows from Resolve 21.2)
         - Customizable filename patterns with tokens
         - Per-timeline subfolders and progress window for batch runs
 
@@ -57,8 +58,7 @@ local CONFIG = {
         "PNG",
         "JPEG",
         "TIFF",
-        "DPX",
-        "EXR"
+        "DPX"
     },
 
     DEFAULT_PATTERN = "{timeline}_{frame}",
@@ -72,8 +72,36 @@ local CONFIG = {
 }
 
 
+-- File extension written for each export format
+local FORMAT_EXTENSIONS = {
+    PNG = "png",
+    JPEG = "jpg",
+    TIFF = "tif",
+    DPX = "dpx"
+}
+
 -- Settings key for persisting user preferences
 local SETTINGS_KEY = "exportStillsFromMarkers"
+
+-- Settings store the export format by NAME (prefs.format), so EXPORT_FORMATS
+-- can be reordered or extended without changing what a saved choice means.
+-- Settings written before that hold a position instead (prefs.formatIndex);
+-- this is the list those positions refer to. Frozen: never edit it.
+local LEGACY_FORMAT_ORDER = { "PNG", "JPEG", "TIFF", "DPX", "EXR" }
+
+-- Resolve 21.2+: Timeline:ExportFrame renders a still in one call, with a JPEG
+-- quality - no playhead move, no sips. Set once after init. A version compare,
+-- not a method probe: the method exists from 21.1.2 but its quality option
+-- only from 21.2, and option keys cannot be probed.
+--
+-- PHASE-OUT: once MIN_RESOLVE reaches 21.2, delete this flag (always true),
+-- jpegQualityAvailable (always true), compressJpegWithSips with its
+-- compression-failure plumbing, and the playhead branch of exportStillAtFrame.
+-- Gallery stills keep stepping the playhead (GrabStill takes no frame).
+local exportFrameSupported = false
+
+-- True when a JPEG quality can be applied: by ExportFrame, or by sips on macOS
+local jpegQualityAvailable = utils.IS_MACOS
 
 -- ============================================================================
 -- SETTINGS AND USER DEFAULTS
@@ -84,7 +112,7 @@ local function getScriptDefaults()
     return {
         sourceIndex = 0,
         colorIndex = 0,
-        formatIndex = 0,
+        format = CONFIG.EXPORT_FORMATS[1],
         pattern = CONFIG.DEFAULT_PATTERN,
         createSubfolders = true,
         overwrite = false,
@@ -257,7 +285,7 @@ local function generateFilename(pattern, timelineName, markerName, frameNum, mar
     return utils.sanitizeFilename(filename)
 end
 
--- Compress JPEG using macOS sips tool
+-- Compress JPEG using macOS sips tool (playhead path only - before Resolve 21.2)
 -- Returns true on success, false and error message on failure
 local function compressJpegWithSips(filePath, quality)
     -- sips overwrites the file in place when input and output are the same
@@ -356,8 +384,9 @@ local function showOptionsDialog(ui, dispatcher, savedPrefs, runExport)
 
                 ui:VGap(9),
 
-                -- JPEG Quality slider (macOS only) - hidden until JPEG selected
-                utils.IS_MACOS and ui:VGroup{
+                -- JPEG Quality slider - hidden until JPEG is selected, and only
+                -- ever shown when a quality can be applied (jpegQualityAvailable)
+                ui:VGroup{
                     ID = "QualityContainer",
                     Weight = 0,
                     Hidden = true,  -- Start hidden, show when JPEG format selected
@@ -394,11 +423,7 @@ local function showOptionsDialog(ui, dispatcher, savedPrefs, runExport)
                     },
 
                     ui:VGap(9),  -- Spacing below quality row
-                -- Placeholder must be a VGap: an HGap inside a VGroup caps the
-                -- whole column's maximum width at 0 (Qt takes the min of child
-                -- maximums on the cross axis), squeezing all content to its
-                -- minimum width
-                } or ui:VGap(0),
+                },
 
                 ui:VGap(3),
 
@@ -589,32 +614,39 @@ local function showOptionsDialog(ui, dispatcher, savedPrefs, runExport)
     local settingsContainer = dialog:Find("SettingsContainer")
     local resetButton = dialog:Find("ResetButton")
 
-    -- Quality elements only exist on macOS
-    local qualityContainer, qualitySlider, qualityLabel
-    if utils.IS_MACOS then
-        qualityContainer = dialog:Find("QualityContainer")
-        qualitySlider = dialog:Find("QualitySlider")
-        qualityLabel = dialog:Find("QualityLabel")
-    end
+    local qualityContainer = dialog:Find("QualityContainer")
+    local qualitySlider = dialog:Find("QualitySlider")
+    local qualityLabel = dialog:Find("QualityLabel")
 
     -- Populate combo boxes
     sourceCombo:AddItems(CONFIG.MARKER_SOURCES)
     colorCombo:AddItems(CONFIG.MARKER_COLORS)
     formatCombo:AddItems(CONFIG.EXPORT_FORMATS)
 
+    -- Combo position of the format saved in a prefs table (see
+    -- LEGACY_FORMAT_ORDER). A format that is missing or no longer offered
+    -- selects the first entry.
+    local function savedFormatIndex(prefs)
+        local name = prefs.format
+        if name == nil and type(prefs.formatIndex) == "number" then
+            name = LEGACY_FORMAT_ORDER[prefs.formatIndex + 1]
+        end
+        for i, format in ipairs(CONFIG.EXPORT_FORMATS) do
+            if format == name then return i - 1 end
+        end
+        return 0
+    end
+
     -- Apply saved preferences or use defaults
     sourceCombo.CurrentIndex = savedPrefs.sourceIndex or 0
     colorCombo.CurrentIndex = savedPrefs.colorIndex or 0
-    formatCombo.CurrentIndex = savedPrefs.formatIndex or 0
+    formatCombo.CurrentIndex = savedFormatIndex(savedPrefs)
     patternEdit.Text = savedPrefs.pattern or CONFIG.DEFAULT_PATTERN
     subfolderCheck.Checked = savedPrefs.createSubfolders ~= false  -- Default true
     overwriteCheck.Checked = savedPrefs.overwrite == true  -- Default false
     openFolderCheck.Checked = savedPrefs.openFolderAfterExport ~= false  -- Default true
-
-    if utils.IS_MACOS and qualitySlider then
-        qualitySlider.Value = savedPrefs.jpegQuality or CONFIG.DEFAULT_JPEG_QUALITY
-        qualityLabel.Text = tostring(qualitySlider.Value)
-    end
+    qualitySlider.Value = savedPrefs.jpegQuality or CONFIG.DEFAULT_JPEG_QUALITY
+    qualityLabel.Text = tostring(qualitySlider.Value)
 
     -- ============================================================================
     -- MODIFIER KEY HANDLING
@@ -662,10 +694,8 @@ local function showOptionsDialog(ui, dispatcher, savedPrefs, runExport)
 
     -- Update JPEG quality visibility and resize window
     local function updateQualityVisibility()
-        if not utils.IS_MACOS then return end  -- Nothing to do on Windows/Linux
-
         local format = CONFIG.EXPORT_FORMATS[formatCombo.CurrentIndex + 1]
-        local shouldShow = format == "JPEG"
+        local shouldShow = format == "JPEG" and jpegQualityAvailable
 
         -- Only update if visibility changed
         if shouldShow ~= jpegQualityVisible then
@@ -687,7 +717,7 @@ local function showOptionsDialog(ui, dispatcher, savedPrefs, runExport)
         end
 
         local example = generateFilename(pattern, "TimelineName", "MarkerA", 1234, color, "01:02:03:14", false)
-        local fullPreview = string.format("%s.%s", example, format:lower())
+        local fullPreview = string.format("%s.%s", example, FORMAT_EXTENSIONS[format])
         local displayPreview = utils.truncatePreview(fullPreview, CONFIG.PREVIEW_MAX_LENGTH, true)
         previewLabel.Text = "→ " .. displayPreview
     end
@@ -696,15 +726,13 @@ local function showOptionsDialog(ui, dispatcher, savedPrefs, runExport)
     local function applyDefaults(defaults)
         sourceCombo.CurrentIndex = defaults.sourceIndex or 0
         colorCombo.CurrentIndex = defaults.colorIndex or 0
-        formatCombo.CurrentIndex = defaults.formatIndex or 0
+        formatCombo.CurrentIndex = savedFormatIndex(defaults)
         patternEdit.Text = defaults.pattern or CONFIG.DEFAULT_PATTERN
         subfolderCheck.Checked = defaults.createSubfolders ~= false
         overwriteCheck.Checked = defaults.overwrite == true
         openFolderCheck.Checked = defaults.openFolderAfterExport ~= false
-        if utils.IS_MACOS and qualitySlider then
-            qualitySlider.Value = defaults.jpegQuality or CONFIG.DEFAULT_JPEG_QUALITY
-            qualityLabel.Text = tostring(defaults.jpegQuality or CONFIG.DEFAULT_JPEG_QUALITY)
-        end
+        qualitySlider.Value = defaults.jpegQuality or CONFIG.DEFAULT_JPEG_QUALITY
+        qualityLabel.Text = tostring(defaults.jpegQuality or CONFIG.DEFAULT_JPEG_QUALITY)
         updateQualityVisibility()
         updateSummary()
     end
@@ -731,18 +759,15 @@ local function showOptionsDialog(ui, dispatcher, savedPrefs, runExport)
         updateSummary()
     end
 
-    -- Slider events only exist on macOS (element doesn't exist on Windows/Linux)
-    if utils.IS_MACOS then
-        function dialog.On.QualitySlider.ValueChanged(ev)
-            qualityLabel.Text = tostring(qualitySlider.Value)
-            updateSummary()
-        end
+    function dialog.On.QualitySlider.ValueChanged(ev)
+        qualityLabel.Text = tostring(qualitySlider.Value)
+        updateSummary()
+    end
 
-        -- SliderMoved fires continuously while dragging
-        function dialog.On.QualitySlider.SliderMoved(ev)
-            qualityLabel.Text = tostring(qualitySlider.Value)
-            updateSummary()
-        end
+    -- SliderMoved fires continuously while dragging
+    function dialog.On.QualitySlider.SliderMoved(ev)
+        qualityLabel.Text = tostring(qualitySlider.Value)
+        updateSummary()
     end
 
     function dialog.On.PatternEdit.TextChanged(ev)
@@ -789,12 +814,12 @@ local function showOptionsDialog(ui, dispatcher, savedPrefs, runExport)
         return {
             sourceIndex = sourceCombo.CurrentIndex,
             colorIndex = colorCombo.CurrentIndex,
-            formatIndex = formatCombo.CurrentIndex,
+            format = CONFIG.EXPORT_FORMATS[formatCombo.CurrentIndex + 1],
             pattern = pattern,
             createSubfolders = subfolderCheck.Checked,
             overwrite = overwriteCheck.Checked,
             openFolderAfterExport = openFolderCheck.Checked,
-            jpegQuality = qualitySlider and qualitySlider.Value or CONFIG.DEFAULT_JPEG_QUALITY
+            jpegQuality = qualitySlider.Value
         }
     end
 
@@ -830,7 +855,7 @@ local function showOptionsDialog(ui, dispatcher, savedPrefs, runExport)
             createSubfolders = subfolderCheck.Checked,
             overwrite = overwriteCheck.Checked,
             openFolderAfterExport = openFolderCheck.Checked,
-            jpegQuality = qualitySlider and qualitySlider.Value or CONFIG.DEFAULT_JPEG_QUALITY,
+            jpegQuality = qualitySlider.Value,
             -- Include UI state for preference persistence
             prefs = getCurrentPrefs()
         }
@@ -871,9 +896,7 @@ local function showOptionsDialog(ui, dispatcher, savedPrefs, runExport)
 
     -- Pre-lay-out collapsed sections while the window is still hidden so their
     -- first reveal doesn't paint a frame at unpositioned coordinates
-    local prewarmList = {settingsContainer}
-    if qualityContainer then table.insert(prewarmList, qualityContainer) end
-    utils.prewarmDialogSections(dialog, prewarmList)
+    utils.prewarmDialogSections(dialog, {settingsContainer, qualityContainer})
 
     -- Initial visibility and summary update
     updateQualityVisibility()
@@ -891,33 +914,16 @@ local function showOptionsDialog(ui, dispatcher, savedPrefs, runExport)
     dialog:Hide()
 end
 
--- Format extension map (cached at module level for O(1) lookup)
-local FORMAT_EXTENSIONS = {
-    PNG = "png",
-    JPEG = "jpg",
-    TIFF = "tif",
-    DPX = "dpx",
-    EXR = "exr"
-}
-
--- Export still at specific frame using Project:ExportCurrentFrameAsStill API
--- Note: Timeline must already be set as current before calling this function
--- frameRate, isDropFrame, and startFrame are passed in (cached per timeline) to avoid repeated API calls
-local function exportStillAtFrame(ctx, timeline, frameNum, frameRate, isDropFrame, startFrame, outputDir, options, filename)
-    local project = ctx.project
+-- Export one still to disk. frameNum is the 0-based offset from the timeline
+-- start (the basis marker frame ids use); timecode is that same position.
+-- directExport renders the frame with Timeline:ExportFrame, without touching
+-- the playhead; otherwise the still is taken at the playhead. Either way the
+-- timeline must already be current: ExportFrame returns success with a BLACK
+-- frame for a timeline that has not been opened since the project was loaded
+-- (Resolve 21.2, measured November 2026).
+-- Returns true, outputPath, jpegUncompressed - or false, errorMessage
+local function exportStillAtFrame(ctx, timeline, frameNum, timecode, outputDir, options, filename, directExport)
     local extension = FORMAT_EXTENSIONS[options.format] or "png"
-
-    -- Calculate absolute frame and convert to timecode
-    -- All frames are now normalized to be relative, so always add startFrame
-    -- Timelines in Resolve typically start at 01:00:00:00 (startFrame = 86400 at 24fps)
-    local absoluteFrame = frameNum + startFrame
-    local timecode = utils.formatTimecode(absoluteFrame, frameRate, isDropFrame)
-
-    -- Set playhead position
-    local success = timeline:SetCurrentTimecode(timecode)
-    if not success then
-        return false, string.format("Failed to set playhead to frame %d (timecode %s)", frameNum, timecode)
-    end
 
     -- Build output path with extension
     local fullFilename = filename .. "." .. extension
@@ -933,10 +939,24 @@ local function exportStillAtFrame(ctx, timeline, frameNum, frameRate, isDropFram
         end
     end
 
-    -- Export the still directly using Project:ExportCurrentFrameAsStill
-    success = project:ExportCurrentFrameAsStill(outputPath)
+    if directExport then
+        local result = timeline:ExportFrame(frameNum, {
+            outputType = "file",
+            filePath = outputPath,
+            quality = options.format == "JPEG" and options.jpegQuality or nil,
+        })
+        if type(result) ~= "table" or not result.success then
+            return false, "ExportFrame failed: " .. tostring(type(result) == "table" and result.error or "no result")
+        end
+        return true, outputPath, false
+    end
 
-    if not success then
+    -- Playhead path: park the playhead on the frame, then export what it shows
+    if not timeline:SetCurrentTimecode(timecode) then
+        return false, string.format("Failed to set playhead to frame %d (timecode %s)", frameNum, timecode)
+    end
+
+    if not ctx.project:ExportCurrentFrameAsStill(outputPath) then
         return false, "ExportCurrentFrameAsStill failed"
     end
 
@@ -967,6 +987,15 @@ local function processTimelines(ctx, timelines, outputPath, options, gallery, al
     local ui = ctx.ui
     local dispatcher = ctx.dispatcher
     local isGalleryMode = options.outputMode == "gallery"
+
+    -- Resolve 21.2+ writes every disk still with ExportFrame (output verified
+    -- pixel-identical to the playhead path in all four formats). Playheads are
+    -- left alone, so the user is put back on the timeline they started on
+    -- after the batch. PNG is the slow one: ExportFrame compresses it where
+    -- the playhead path writes it uncompressed - at 3840x2160 files are ~3x
+    -- smaller and take 2.1 s against 0.5 s (measured November 2026, macOS).
+    local directExport = not isGalleryMode and exportFrameSupported
+    local originalTimeline = directExport and ctx.project:GetCurrentTimeline() or nil
 
     -- Count total markers to export
     local markerList = {}
@@ -1072,9 +1101,17 @@ local function processTimelines(ctx, timelines, outputPath, options, gallery, al
     utils.printSeparator("=", 70)
     utils.printHeader(isGalleryMode and "Adding Stills to Gallery" or "Exporting Stills")
 
+    if not isGalleryMode then
+        print("  Export method: " .. (directExport
+            and "direct render (playheads stay put)"
+            or "playhead (stepped to every marker)"))
+    end
+
     -- Print JPEG quality info if applicable (disk export only)
-    if not isGalleryMode and utils.IS_MACOS and options.format == "JPEG" then
-        if options.jpegQuality < 100 then
+    if not isGalleryMode and jpegQualityAvailable and options.format == "JPEG" then
+        if directExport then
+            print(string.format("  JPEG quality: %d", options.jpegQuality))
+        elseif options.jpegQuality < 100 then
             print(string.format("  JPEG quality: %d (using sips compression)", options.jpegQuality))
         else
             print("  JPEG quality: 100 (no compression, using Resolve default)")
@@ -1091,8 +1128,9 @@ local function processTimelines(ctx, timelines, outputPath, options, gallery, al
         local timeline = timelineInfo.timeline.timeline
         local timelineName = timelineInfo.timeline.name
 
-        local tlSuccess = utils.setCurrentTimeline(ctx.project, timeline)
-        if not tlSuccess then
+        -- Every path needs the timeline current - direct exports included
+        -- (see exportStillAtFrame: an unopened timeline renders black)
+        if not utils.setCurrentTimeline(ctx.project, timeline) then
             utils.printError("Failed to set timeline as current: " .. timelineName)
             goto continue_timeline
         end
@@ -1170,13 +1208,13 @@ local function processTimelines(ctx, timelines, outputPath, options, gallery, al
             else
                 -- Disk export path
                 -- On success, errOrPath holds the actual still path; on failure, the error message.
-                local success, errOrPath, jpegUncompressed = exportStillAtFrame(ctx, timeline, frame, frameRate, isDropFrame, startFrame, exportDir, options, filename)
+                local success, errOrPath, jpegUncompressed = exportStillAtFrame(ctx, timeline, frame, timecode, exportDir, options, filename, directExport)
 
                 if success then
                     exportCount = exportCount + 1
                     if jpegUncompressed then compressionFailures = compressionFailures + 1 end
-                    print(string.format("  Frame %d (%s): %s.%s",
-                                      frame, sourceLabel, filename, options.format:lower()))
+                    print(string.format("  Frame %d (%s): %s", frame, sourceLabel,
+                                      errOrPath:sub(#exportDir + #utils.PATH_SEP + 1)))
 
                     if progress then
                         progress.update(currentMarker, info.name or "Marker",
@@ -1197,6 +1235,10 @@ local function processTimelines(ctx, timelines, outputPath, options, gallery, al
         end
 
         ::continue_timeline::
+    end
+
+    if originalTimeline then
+        utils.setCurrentTimeline(ctx.project, originalTimeline)
     end
 
     -- A cancel that lands after the last marker was already processed is
@@ -1258,15 +1300,6 @@ end
 print("\n")
 utils.printHeader(SCRIPT_INFO.NAME .. " v" .. SCRIPT_INFO.VERSION)
 
--- Print platform info
-if utils.IS_MACOS then
-    print("  Platform: macOS (JPEG quality control available)")
-elseif utils.IS_LINUX then
-    print("  Platform: Linux (JPEG uses default quality)")
-else
-    print("  Platform: Windows (JPEG uses default quality)")
-end
-
 -- Initialize with UI support
 local ctx, err = utils.initializeWithUI(SCRIPT_INFO)
 if not ctx then
@@ -1280,6 +1313,11 @@ local project = ctx.project
 local mediaPool = ctx.mediaPool
 local ui = ctx.ui
 local dispatcher = ctx.dispatcher
+
+local resolveVersion = utils.getResolveVersion(ctx.resolve)
+exportFrameSupported = resolveVersion ~= nil
+    and (resolveVersion.major > 21 or (resolveVersion.major == 21 and resolveVersion.minor >= 2))
+jpegQualityAvailable = exportFrameSupported or utils.IS_MACOS
 
 utils.printSuccess("Connected to DaVinci Resolve")
 local projectName = project:GetName()
@@ -1346,9 +1384,9 @@ local function runExport(options)
     else
         print(string.format("  Output mode: Export to Disk"))
         print(string.format("  Export format: %s", options.format))
-        if utils.IS_MACOS and options.format == "JPEG" then
+        if jpegQualityAvailable and options.format == "JPEG" then
             print(string.format("  JPEG quality: %d%s", options.jpegQuality,
-                  options.jpegQuality == 100 and " (no compression)" or ""))
+                  (options.jpegQuality == 100 and not exportFrameSupported) and " (no compression)" or ""))
         end
         print(string.format("  Filename pattern: %s", options.pattern))
         print(string.format("  Create subfolders: %s", options.createSubfolders and "Yes" or "No"))
