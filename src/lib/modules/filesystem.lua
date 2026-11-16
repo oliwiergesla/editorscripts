@@ -353,20 +353,61 @@ end
 -- JSON UTILITIES
 -- ============================================================================
 
--- Lookup table for JSON string escaping (single-pass optimization)
+-- Tables nested deeper than this are not followed (the encoder writes null,
+-- the decoder returns an error), so neither can overflow the Lua stack
+local JSON_MAX_DEPTH = 200
+
+-- Lookup table for JSON string escaping (single-pass optimization): the short
+-- forms JSON defines, \u00XX for every other control character and for DEL
 local jsonEscapeChars = {
     ['\\'] = '\\\\',
     ['"'] = '\\"',
+    ['\b'] = '\\b',
+    ['\f'] = '\\f',
     ['\n'] = '\\n',
     ['\r'] = '\\r',
     ['\t'] = '\\t'
 }
+for byte = 0, 31 do
+    local char = string.char(byte)
+    if not jsonEscapeChars[char] then
+        jsonEscapeChars[char] = string.format("\\u%04x", byte)
+    end
+end
+jsonEscapeChars[string.char(127)] = "\\u007f"
 
--- Simple JSON encoder for Lua tables
+-- %c covers 0x00-0x1F and 0x7F. A literal "\0" inside a pattern is rejected
+-- by Resolve's LuaJIT ("malformed pattern"), so the class is spelled this way.
+local function encodeJSONString(text)
+    return '"' .. text:gsub('[%c"\\]', jsonEscapeChars) .. '"'
+end
+
+-- JSON has no nan or infinity: both are written as null. 14 significant
+-- digits keep the output short; 17 are used only when 14 would not read back
+-- to the same number.
+local function encodeJSONNumber(number)
+    if number ~= number or number == math.huge or number == -math.huge then
+        return "null"
+    end
+    local text = string.format("%.14g", number)
+    if tonumber(text) ~= number then
+        text = string.format("%.17g", number)
+    end
+    return text
+end
+
+-- JSON encoder for Lua values. Never raises.
 -- Supports: strings, numbers, booleans, nil, tables (as objects or arrays)
-local function encodeJSON(value, indent)
+--   - A table is an array only when its keys are exactly 1..n. An empty table
+--     is written as [].
+--   - Any other table is an object. Number keys are written as string keys
+--     ({[10] = "a"} becomes {"10": "a"}); keys of other types are skipped.
+--     Keys are sorted, so the same data always produces the same text.
+--   - nan, infinity, functions, userdata and a table that contains itself are
+--     written as null.
+-- Callers pass the value only; indent and path are for the recursion.
+local function encodeJSON(value, indent, path)
     indent = indent or 0
-    local indentStr = string.rep("  ", indent)
     local valueType = type(value)
 
     if valueType == "nil" then
@@ -374,167 +415,287 @@ local function encodeJSON(value, indent)
     elseif valueType == "boolean" then
         return value and "true" or "false"
     elseif valueType == "number" then
-        return tostring(value)
+        return encodeJSONNumber(value)
     elseif valueType == "string" then
-        -- Escape special characters (single-pass using lookup table)
-        local escaped = value:gsub('[\\"\n\r\t]', jsonEscapeChars)
-        return '"' .. escaped .. '"'
-    elseif valueType == "table" then
-        -- Check if it's an array (consecutive integer keys starting at 1)
-        local isArray = true
-        local count = 0
-        for k, v in pairs(value) do
-            count = count + 1
-            if type(k) ~= "number" or k ~= count then
-                isArray = false
-                break
-            end
-        end
-
-        if isArray then
-            -- Encode as JSON array
-            if count == 0 then
-                return "[]"
-            end
-
-            local parts = {}
-            for i = 1, count do
-                parts[#parts + 1] = indentStr .. "  " .. encodeJSON(value[i], indent + 1)
-            end
-            return "[\n" .. table.concat(parts, ",\n") .. "\n" .. indentStr .. "]"
-        else
-            -- Encode as JSON object
-            local parts = {}
-            for k, v in pairs(value) do
-                if type(k) == "string" then
-                    parts[#parts + 1] = indentStr .. "  " .. encodeJSON(k) .. ": " .. encodeJSON(v, indent + 1)
-                end
-            end
-
-            if #parts == 0 then
-                return "{}"
-            end
-
-            return "{\n" .. table.concat(parts, ",\n") .. "\n" .. indentStr .. "}"
-        end
-    else
+        return encodeJSONString(value)
+    elseif valueType ~= "table" then
         return "null"
     end
-end
 
--- Simple JSON decoder for Lua
--- Supports: strings, numbers, booleans, null, objects, arrays
-local function decodeJSON(jsonStr)
-    if not jsonStr or jsonStr == "" then
-        return nil, "Empty JSON string"
+    path = path or {}
+    if path[value] or indent >= JSON_MAX_DEPTH then
+        return "null"
     end
 
-    -- Remove whitespace
+    -- Positive integer keys only, and the largest equals the key count: the
+    -- keys are then exactly 1..count, in whatever order pairs() visits them
+    local count, maxKey, isArray = 0, 0, true
+    for k in pairs(value) do
+        count = count + 1
+        if type(k) == "number" and k >= 1 and k % 1 == 0 then
+            if k > maxKey then
+                maxKey = k
+            end
+        else
+            isArray = false
+        end
+    end
+    isArray = isArray and maxKey == count
+
+    if count == 0 then
+        return "[]"
+    end
+
+    local indentStr = string.rep("  ", indent)
+    local childIndent = indentStr .. "  "
+    local parts = {}
+    path[value] = true
+
+    if isArray then
+        for i = 1, count do
+            parts[i] = childIndent .. encodeJSON(value[i], indent + 1, path)
+        end
+        path[value] = nil
+        return "[\n" .. table.concat(parts, ",\n") .. "\n" .. indentStr .. "]"
+    end
+
+    -- Object: map each key's JSON text back to the key. If a number key and a
+    -- string key collide ({[1] = ..., ["1"] = ...}), the string key wins.
+    local keyByText, texts = {}, {}
+    for k in pairs(value) do
+        local keyType = type(k)
+        local text = nil
+        if keyType == "string" then
+            text = k
+        elseif keyType == "number" and k == k and k ~= math.huge and k ~= -math.huge then
+            text = encodeJSONNumber(k)
+        end
+        if text then
+            if keyByText[text] == nil then
+                texts[#texts + 1] = text
+                keyByText[text] = k
+            elseif keyType == "string" then
+                keyByText[text] = k
+            end
+        end
+    end
+
+    -- Number keys first, in numeric order, then string keys in byte order
+    table.sort(texts, function(a, b)
+        local keyA, keyB = keyByText[a], keyByText[b]
+        local numA, numB = type(keyA) == "number", type(keyB) == "number"
+        if numA and numB then
+            return keyA < keyB
+        elseif numA ~= numB then
+            return numA
+        end
+        return a < b
+    end)
+
+    for i, text in ipairs(texts) do
+        parts[i] = childIndent .. encodeJSONString(text) .. ": "
+            .. encodeJSON(value[keyByText[text]], indent + 1, path)
+    end
+    path[value] = nil
+
+    if #parts == 0 then
+        return "{}"
+    end
+
+    return "{\n" .. table.concat(parts, ",\n") .. "\n" .. indentStr .. "}"
+end
+
+-- Escapes with a meaning of their own. Every other escaped character stands
+-- for itself, which covers \" \\ \/ and tolerates unknown escapes.
+local jsonUnescapeChars = {
+    b = '\b',
+    f = '\f',
+    n = '\n',
+    r = '\r',
+    t = '\t'
+}
+
+-- Bare words the decoder accepts. Non-finite numbers have no JSON form, but
+-- Python writes NaN / Infinity and this encoder used to write nan / inf: all
+-- of them read as null so one such value does not fail the whole text.
+local jsonBooleanWords = { ["true"] = true, ["false"] = false }
+local jsonNullWords = {
+    ["null"] = true,
+    ["NaN"] = true, ["Infinity"] = true, ["-Infinity"] = true,
+    ["nan"] = true, ["-nan"] = true, ["inf"] = true, ["-inf"] = true
+}
+
+-- Encode one Unicode code point (0 to 0x10FFFF) as UTF-8
+local function utf8FromCodepoint(codepoint)
+    local floor = math.floor
+    if codepoint < 0x80 then
+        return string.char(codepoint)
+    elseif codepoint < 0x800 then
+        return string.char(0xC0 + floor(codepoint / 0x40), 0x80 + codepoint % 0x40)
+    elseif codepoint < 0x10000 then
+        return string.char(0xE0 + floor(codepoint / 0x1000),
+            0x80 + floor(codepoint / 0x40) % 0x40, 0x80 + codepoint % 0x40)
+    end
+    return string.char(0xF0 + floor(codepoint / 0x40000),
+        0x80 + floor(codepoint / 0x1000) % 0x40,
+        0x80 + floor(codepoint / 0x40) % 0x40, 0x80 + codepoint % 0x40)
+end
+
+-- JSON decoder for Lua
+-- Supports: strings, numbers, booleans, null, objects, arrays
+-- Returns: value, or nil, error (the error names the byte position)
+--   - null becomes nil: an object key with a null value is absent, and a null
+--     inside an array is dropped, so the items after it move down one place.
+--   - \uXXXX escapes become UTF-8 (surrogate pairs are combined, a surrogate
+--     on its own becomes U+FFFD). A leading UTF-8 byte order mark is skipped.
+--   - Lenient where older files need it: raw control characters inside
+--     strings and unknown escapes are accepted.
+--   - Strict otherwise: malformed numbers, unknown words, nesting deeper than
+--     JSON_MAX_DEPTH and anything but whitespace after the value are errors.
+local function decodeJSON(jsonStr)
+    if jsonStr == nil or jsonStr == "" then
+        return nil, "Empty JSON string"
+    end
+    if type(jsonStr) ~= "string" then
+        return nil, "Expected a JSON string, got " .. type(jsonStr)
+    end
+
+    local len = #jsonStr
     local pos = 1
+    local depth = 0
+
+    local b1, b2, b3 = jsonStr:byte(1, 3)
+    if b1 == 0xEF and b2 == 0xBB and b3 == 0xBF then
+        pos = 4
+    elseif (b1 == 0xFF and b2 == 0xFE) or (b1 == 0xFE and b2 == 0xFF) then
+        return nil, "JSON text is UTF-16 encoded, expected UTF-8"
+    end
+
+    local function fail(message, at)
+        return nil, message .. " at byte " .. (at or pos)
+    end
 
     local function skipWhitespace()
-        while pos <= #jsonStr do
-            local char = jsonStr:sub(pos, pos)
-            if char ~= ' ' and char ~= '\t' and char ~= '\n' and char ~= '\r' then
-                break
+        pos = jsonStr:find("[^ \t\r\n]", pos) or len + 1
+    end
+
+    -- Parse the string whose opening quote is at pos. Jumps from one quote or
+    -- backslash to the next and joins the runs in between once at the end.
+    local function parseString()
+        local openPos = pos
+        local start = pos + 1
+        local parts, count = nil, 0
+
+        while true do
+            local stop = jsonStr:find('["\\]', start)
+            if not stop then
+                return fail("Unterminated string", openPos)
             end
-            pos = pos + 1
+
+            if jsonStr:sub(stop, stop) == '"' then
+                local run = jsonStr:sub(start, stop - 1)
+                pos = stop + 1
+                if not parts then
+                    return run
+                end
+                parts[count + 1] = run
+                return table.concat(parts)
+            end
+
+            -- Backslash: keep the run before it, then decode the escape
+            parts = parts or {}
+            count = count + 1
+            parts[count] = jsonStr:sub(start, stop - 1)
+
+            local escapeChar = jsonStr:sub(stop + 1, stop + 1)
+            if escapeChar == "" then
+                return fail("Unterminated string", openPos)
+            end
+
+            count = count + 1
+            if escapeChar == "u" then
+                local hex = jsonStr:match("^%x%x%x%x", stop + 2)
+                if not hex then
+                    return fail("Invalid \\u escape", stop)
+                end
+                local codepoint = tonumber(hex, 16)
+                start = stop + 6
+
+                if codepoint >= 0xD800 and codepoint <= 0xDBFF then
+                    -- High surrogate: only valid with a low surrogate after it
+                    local lowHex = jsonStr:match("^\\u(%x%x%x%x)", start)
+                    local low = lowHex and tonumber(lowHex, 16)
+                    if low and low >= 0xDC00 and low <= 0xDFFF then
+                        codepoint = 0x10000 + (codepoint - 0xD800) * 0x400 + (low - 0xDC00)
+                        start = start + 6
+                    else
+                        codepoint = 0xFFFD
+                    end
+                elseif codepoint >= 0xDC00 and codepoint <= 0xDFFF then
+                    codepoint = 0xFFFD
+                end
+
+                parts[count] = utf8FromCodepoint(codepoint)
+            else
+                parts[count] = jsonUnescapeChars[escapeChar] or escapeChar
+                start = stop + 2
+            end
         end
     end
 
     local function parseValue()
         skipWhitespace()
 
-        if pos > #jsonStr then
-            return nil, "Unexpected end of JSON"
+        if pos > len then
+            return fail("Unexpected end of JSON")
         end
 
         local char = jsonStr:sub(pos, pos)
 
-        -- null
-        if jsonStr:sub(pos, pos + 3) == "null" then
-            pos = pos + 4
-            return nil
-        end
-
-        -- true
-        if jsonStr:sub(pos, pos + 3) == "true" then
-            pos = pos + 4
-            return true
-        end
-
-        -- false
-        if jsonStr:sub(pos, pos + 4) == "false" then
-            pos = pos + 5
-            return false
-        end
-
         -- string
         if char == '"' then
-            pos = pos + 1
-            local value = ""
+            return parseString()
+        end
 
-            while pos <= #jsonStr do
-                char = jsonStr:sub(pos, pos)
-
-                if char == '"' then
-                    pos = pos + 1
-                    return value
-                elseif char == '\\' then
-                    pos = pos + 1
-                    local escapeChar = jsonStr:sub(pos, pos)
-                    if escapeChar == 'n' then
-                        value = value .. '\n'
-                    elseif escapeChar == 'r' then
-                        value = value .. '\r'
-                    elseif escapeChar == 't' then
-                        value = value .. '\t'
-                    elseif escapeChar == '\\' then
-                        value = value .. '\\'
-                    elseif escapeChar == '"' then
-                        value = value .. '"'
-                    else
-                        value = value .. escapeChar
-                    end
-                    pos = pos + 1
-                else
-                    value = value .. char
-                    pos = pos + 1
-                end
+        -- true, false, null and the non-finite number words
+        local word = jsonStr:match("^-?%a+", pos)
+        if word then
+            local booleanValue = jsonBooleanWords[word]
+            if booleanValue ~= nil then
+                pos = pos + #word
+                return booleanValue
             end
-
-            return nil, "Unterminated string"
+            if jsonNullWords[word] then
+                pos = pos + #word
+                return nil
+            end
+            return fail("Unexpected word '" .. word:sub(1, 20) .. "'")
         end
 
         -- number
         if char == '-' or (char >= '0' and char <= '9') then
-            local startPos = pos
-
-            if char == '-' then
-                pos = pos + 1
+            local numStr = jsonStr:match("^-?%d[%d%.eE+-]*", pos)
+            local number = numStr and tonumber(numStr)
+            if not number then
+                return fail("Invalid number")
             end
-
-            while pos <= #jsonStr do
-                char = jsonStr:sub(pos, pos)
-                if (char >= '0' and char <= '9') or char == '.' or char == 'e' or char == 'E' or char == '+' or char == '-' then
-                    pos = pos + 1
-                else
-                    break
-                end
-            end
-
-            local numStr = jsonStr:sub(startPos, pos - 1)
-            return tonumber(numStr)
+            pos = pos + #numStr
+            return number
         end
 
         -- object
         if char == '{' then
+            if depth >= JSON_MAX_DEPTH then
+                return fail("Nesting too deep")
+            end
+            depth = depth + 1
             pos = pos + 1
             local obj = {}
 
             skipWhitespace()
             if jsonStr:sub(pos, pos) == '}' then
                 pos = pos + 1
+                depth = depth - 1
                 return obj
             end
 
@@ -543,19 +704,19 @@ local function decodeJSON(jsonStr)
 
                 -- Parse key (must be string)
                 if jsonStr:sub(pos, pos) ~= '"' then
-                    return nil, "Expected string key in object"
+                    return fail("Expected string key in object")
                 end
 
-                local key = parseValue()
-                if not key then
-                    return nil, "Invalid object key"
+                local key, keyErr = parseString()
+                if keyErr then
+                    return nil, keyErr
                 end
 
                 skipWhitespace()
 
                 -- Expect colon
                 if jsonStr:sub(pos, pos) ~= ':' then
-                    return nil, "Expected ':' after object key"
+                    return fail("Expected ':' after object key")
                 end
                 pos = pos + 1
 
@@ -572,23 +733,30 @@ local function decodeJSON(jsonStr)
                 char = jsonStr:sub(pos, pos)
                 if char == '}' then
                     pos = pos + 1
+                    depth = depth - 1
                     return obj
                 elseif char == ',' then
                     pos = pos + 1
                 else
-                    return nil, "Expected ',' or '}' in object"
+                    return fail("Expected ',' or '}' in object")
                 end
             end
         end
 
         -- array
         if char == '[' then
+            if depth >= JSON_MAX_DEPTH then
+                return fail("Nesting too deep")
+            end
+            depth = depth + 1
             pos = pos + 1
             local arr = {}
+            local count = 0
 
             skipWhitespace()
             if jsonStr:sub(pos, pos) == ']' then
                 pos = pos + 1
+                depth = depth - 1
                 return arr
             end
 
@@ -598,28 +766,38 @@ local function decodeJSON(jsonStr)
                     return nil, err
                 end
 
-                arr[#arr + 1] = value
+                -- A null item is dropped (see the function comment)
+                if value ~= nil then
+                    count = count + 1
+                    arr[count] = value
+                end
 
                 skipWhitespace()
 
                 char = jsonStr:sub(pos, pos)
                 if char == ']' then
                     pos = pos + 1
+                    depth = depth - 1
                     return arr
                 elseif char == ',' then
                     pos = pos + 1
                 else
-                    return nil, "Expected ',' or ']' in array"
+                    return fail("Expected ',' or ']' in array")
                 end
             end
         end
 
-        return nil, "Unexpected character: " .. char
+        return fail("Unexpected character")
     end
 
     local value, err = parseValue()
     if err then
         return nil, err
+    end
+
+    skipWhitespace()
+    if pos <= len then
+        return fail("Unexpected trailing characters")
     end
 
     return value
