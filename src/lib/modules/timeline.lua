@@ -205,7 +205,8 @@ function Timeline.getTimelineDuration(timeline)
         return nil, "Could not read timeline duration settings"
     end
 
-    local durationFrames = endFrame - startFrame + 1
+    -- GetEndFrame() is exclusive (the frame after the last one)
+    local durationFrames = endFrame - startFrame
     return durationFrames / frameRate, nil
 end
 
