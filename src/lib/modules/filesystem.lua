@@ -254,12 +254,16 @@ local function readDirNative(dir)
     return entries
 end
 
+local IS_WINDOWS = package.config:sub(1, 1) == "\\"
+
 -- Shell fallback for readDirNative. macOS/Linux: `ls -1p` (trailing slash
 -- marks directories). Windows: two `dir /b` calls (dirs then files).
--- Returns: array of { name, isDir } or nil on failure.
+-- Returns: array of { name, isDir } or nil on failure. On macOS/Linux a
+-- directory that cannot be read is a failure; on Windows it reads as empty
+-- (`dir /b` also exits non-zero for a listing with no matches).
 local function readDirShell(dir)
     local entries = {}
-    if package.config:sub(1, 1) == "\\" then
+    if IS_WINDOWS then
         local listings = {
             { flags = "/b /ad", isDir = true },
             { flags = "/b /a-d", isDir = false },
@@ -287,9 +291,28 @@ local function readDirShell(dir)
                 entries[#entries + 1] = { name = name, isDir = line:sub(-1) == "/" }
             end
         end
-        pipe:close()
+        -- ls exits non-zero when it cannot read the directory, and close()
+        -- reports that as nil, "exit", code. A partial listing is kept.
+        local ok, how, code = pipe:close()
+        if not ok and how == "exit" and code ~= 0 and #entries == 0 then
+            return nil
+        end
     end
     return entries
+end
+
+-- List one directory level: native backend first, shell as the fallback.
+-- bmd.readdir returns an empty list for a directory it cannot read, so with
+-- confirmEmpty an empty native result is read again through ls, which can
+-- tell "empty" from "unreadable". Skipped on Windows, where the shell cannot
+-- tell them apart either.
+-- Returns: array of { name, isDir } or nil on failure.
+local function listDirectory(dir, confirmEmpty)
+    local entries = readDirNative(dir)
+    if entries and not (confirmEmpty and #entries == 0 and not IS_WINDOWS) then
+        return entries
+    end
+    return readDirShell(dir)
 end
 
 -- Walk a directory tree and collect files.
@@ -301,7 +324,8 @@ end
 --   maxDepth    (default 12)    - recursion guard against symlink cycles
 -- Returns: entries, nil on success or nil, error on failure. Each entry is
 -- { path, relativePath, name }; relativePath is "/"-joined on all platforms.
--- Unreadable subdirectories are skipped; only a top-level failure errors.
+-- Unreadable subdirectories are skipped; only a top-level failure errors
+-- (on Windows an unreadable top level still reads as empty).
 -- Callers sort the result themselves.
 function FileSystem.walkDirectory(dir, opts)
     opts = opts or {}
@@ -317,9 +341,9 @@ function FileSystem.walkDirectory(dir, opts)
     local results = {}
 
     local function visit(currentDir, relPrefix, depth)
-        local entries = readDirNative(currentDir) or readDirShell(currentDir)
+        local entries = listDirectory(currentDir, depth == 1)
         if not entries then
-            return depth == 1 and false or true
+            return depth ~= 1
         end
         for _, entry in ipairs(entries) do
             local name = entry.name
