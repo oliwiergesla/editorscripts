@@ -366,11 +366,6 @@ function Timeline.extractResolutionFromTimelineName(timelineName)
     return timelineName:match("(%d+x%d+)")
 end
 
--- Remove version suffix from timeline name (e.g., "_V1", "_V2")
-function Timeline.removeVersionSuffix(timelineName)
-    return timelineName:gsub("_V%d+$", "")
-end
-
 -- Parse trailing "_V<n>" / "_<W>x<H>" tokens off the END of a name, in any
 -- order, at most one of each (stops at a repeat). Identical-looking tokens
 -- mid-name belong to the base and stay. Version keeps its case and zero

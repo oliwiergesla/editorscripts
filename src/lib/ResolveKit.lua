@@ -165,7 +165,6 @@ ResolveKit.countMarkers = Timeline.countMarkers
 
 -- Timeline Name Manipulation
 ResolveKit.extractResolutionFromTimelineName = Timeline.extractResolutionFromTimelineName
-ResolveKit.removeVersionSuffix = Timeline.removeVersionSuffix
 ResolveKit.parseTimelineName = Timeline.parseTimelineName
 ResolveKit.modifyTimelineName = Timeline.modifyTimelineName
 ResolveKit.timelineNameContains = Timeline.timelineNameContains
